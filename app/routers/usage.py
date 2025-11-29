@@ -26,11 +26,13 @@ def report_usage(payload: UsageReportRequest, db: Session = Depends(get_db)):
     ignored = 0
 
     for ev in payload.events:
-        try:
-            start_dt = datetime.fromisoformat(ev.start_time.replace("Z", "+00:00"))
-            end_dt = datetime.fromisoformat(ev.end_time.replace("Z", "+00:00"))
-        except Exception:
-            continue
+        
+        start_dt = ev.start_time
+        end_dt = ev.end_time
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc+timedelta(hours=3))
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc+timedelta(hours=3))
 
         session = AppSession(
             child_id=payload.child_id,
@@ -43,6 +45,7 @@ def report_usage(payload: UsageReportRequest, db: Session = Depends(get_db)):
                 "app_name": ev.app_name,
                 "total_seconds": ev.total_seconds,
             },
+            
         )
         try:
             db.add(session)

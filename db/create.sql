@@ -17,7 +17,6 @@ CREATE TABLE users (
 -- =========================================================
 --  CORE: CHILD
 -- =========================================================
-
 CREATE TABLE IF NOT EXISTS child (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     parent_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -32,11 +31,12 @@ CREATE TABLE IF NOT EXISTS child (
 -- =========================================================
 CREATE TABLE device (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    child_id UUID NOT NULL REFERENCES child(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     platform TEXT,
     model TEXT,
     os_version TEXT,
-    enrolled_at TIMESTAMPTZ DEFAULT NOW()
+    enrolled_at TIMESTAMPTZ DEFAULT NOW(),
+    revoked_at TIMESTAMPTZ
 );
 
 -- =========================================================
@@ -82,20 +82,20 @@ CREATE TABLE app_session (
     id BIGSERIAL PRIMARY KEY,
     child_id UUID NOT NULL,
     device_id UUID NOT NULL,
-    package_name TEXT,
-    started_at TIMESTAMPTZ NOT NULL,
+    package_name TEXT NOT NULL,
+    started_at TIMESTAMPTZ,
     ended_at TIMESTAMPTZ,
-    event_type VARCHAR,             -- 'session', 'screen_on', vs. (istersen)
+    source VARCHAR,
+    payload JSONB,
     occurred_at TIMESTAMPTZ DEFAULT NOW(),
-    source VARCHAR,                 -- 'child_device' vs.
-    payload JSONB,                  -- ek metadata
 
+    -- Sadece users ve device tablolarına bağladık, catalog şartını kaldırdık.
     CONSTRAINT fk_app_session_child
-        FOREIGN KEY (child_id) REFERENCES users(id),
+        FOREIGN KEY (child_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_app_session_device
-        FOREIGN KEY (device_id) REFERENCES device(id),
-    CONSTRAINT fk_app_session_package
-        FOREIGN KEY (package_name) REFERENCES app_catalog(package_name)
+        FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE
+    CONSTRAINT unique_session_entry UNIQUE (child_id, device_id, package_name, started_at)
+    
 );
 
 -- =========================================================

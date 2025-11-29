@@ -9,3 +9,4 @@ class ParentLoginResponse(BaseModel):
     token: str
     refreshToken: str | None = None
     childId: str | None = None
+    deviceId: str | None = None

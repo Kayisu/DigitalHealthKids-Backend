@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError 
 
 from app.db import get_db
 from app.models.core import AppSession, User
@@ -21,13 +23,13 @@ router = APIRouter()
 @router.post("/report", response_model=UsageReportResponse)
 def report_usage(payload: UsageReportRequest, db: Session = Depends(get_db)):
     inserted = 0
+    ignored = 0
 
     for ev in payload.events:
         try:
             start_dt = datetime.fromisoformat(ev.start_time.replace("Z", "+00:00"))
             end_dt = datetime.fromisoformat(ev.end_time.replace("Z", "+00:00"))
         except Exception:
-            # Çöpe at, çok da kasmayalım şimdilik
             continue
 
         session = AppSession(
@@ -42,12 +44,18 @@ def report_usage(payload: UsageReportRequest, db: Session = Depends(get_db)):
                 "total_seconds": ev.total_seconds,
             },
         )
-        db.add(session)
-        inserted += 1
+        try:
+            db.add(session)
+            db.commit() # Her satırı tek tek dene (Toplu insertte biri patlarsa hepsi patlar)
+            inserted += 1
+        except IntegrityError:
+            db.rollback() # Bu kayıt zaten var, devam et
+            ignored += 1
+        except Exception as e:
+            db.rollback()
+            print(f"Error inserting: {e}")
 
-    db.commit()
-
-    return UsageReportResponse(status="ok", inserted=inserted)
+    return UsageReportResponse(status="ok", inserted=inserted) # İstersen ignored sayısını da dön
 
 @router.get("/dashboard", response_model=DashboardResponse)
 def get_dashboard(child_id: UUID, db: Session = Depends(get_db)) -> DashboardResponse:

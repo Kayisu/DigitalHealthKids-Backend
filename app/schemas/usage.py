@@ -1,8 +1,7 @@
 # app/schemas/usage.py
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Optional
 from uuid import UUID
-
 from pydantic import BaseModel, Field
 
 
@@ -28,15 +27,17 @@ class UsageReportResponse(BaseModel):
 class AppUsageItem(BaseModel):
     app_name: str
     package_name: str
-    category: Optional[str] = None
     minutes: int
 
+# 🔥 YENİ: Her günün kendi detaylı raporu var
+class DailyStat(BaseModel):
+    date: date          # 2025-11-29
+    total_minutes: int
+    apps: List[AppUsageItem] # O gün kullanılanlar
 
 class DashboardResponse(BaseModel):
     child_name: str
     today_total_minutes: int
-    today_remaining_minutes: int
-    weekly_trend: List[int]
-    top_apps: List[AppUsageItem]
+    weekly_breakdown: List[DailyStat] # 🔥 Artık trend yerine bu var
     bedtime_start: Optional[str] = None
     bedtime_end: Optional[str] = None

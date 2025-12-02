@@ -1,6 +1,6 @@
 # app/routers/usage.py
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone 
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.db import get_db
 from app.models.core import AppSession, User
 from app.schemas.usage import (
+    DailyStat,
     UsageReportRequest,
     UsageReportResponse,
     DashboardResponse,
@@ -62,20 +63,16 @@ def report_usage(payload: UsageReportRequest, db: Session = Depends(get_db)):
 
 @router.get("/dashboard", response_model=DashboardResponse)
 def get_dashboard(child_id: UUID, db: Session = Depends(get_db)) -> DashboardResponse:
-    """
-    Belirli bir child_id için SON 7 GÜNÜ gerçek app_session verisinden
-    özetleyip dashboard döner.
-    """
-    # 1) Çocuğu doğrula
     child = db.query(User).filter(User.id == child_id).first()
-    if child is None:
+    if not child:
         raise HTTPException(status_code=404, detail="Child not found")
 
-    # 2) Tarih aralığı: son 7 gün (bugün dahil)
     today = datetime.now(timezone.utc).date()
+    # Son 7 gün (6 gün önce + bugün)
     start_date = today - timedelta(days=6)
     start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
 
+    # Veritabanından bu aralıktaki tüm sessionları çek
     sessions = (
         db.query(AppSession)
         .filter(AppSession.child_id == child_id)
@@ -83,65 +80,74 @@ def get_dashboard(child_id: UUID, db: Session = Depends(get_db)) -> DashboardRes
         .all()
     )
 
-    # 3) Günlük dakika ve uygulama bazlı dakika bucket'ları
-    day_minutes = defaultdict(int)   # date -> minutes
-    app_minutes = defaultdict(int)   # package -> minutes
-    app_names = {}                   # package -> app_name
-
-    for s in sessions:
-        # total_seconds öncelikli, yoksa ended_at - started_at
-        if isinstance(s.payload, dict) and "total_seconds" in s.payload:
-            total_sec = int(s.payload.get("total_seconds") or 0)
-        elif s.ended_at:
-            total_sec = int((s.ended_at - s.started_at).total_seconds())
-        else:
-            continue
-
-        mins = total_sec // 60
-        day = s.started_at.date()
-        day_minutes[day] += mins
-
-        pkg = s.package_name or "unknown"
-        app_minutes[pkg] += mins
-        name = None
-        if isinstance(s.payload, dict):
-            name = s.payload.get("app_name")
-        app_names[pkg] = name or pkg
-
-    # 4) Weekly trend: start_date..today arası 7 günlük liste
-    weekly_trend: list[int] = []
+    # Veriyi günlere göre grupla
+    # daily_map: { date: { 'total': 0, 'apps': { 'pkg': minutes } } }
+    daily_map = {}
+    
+    # Boş şablonu oluştur (Veri olmayan günler 0 görünsün)
     for i in range(7):
         d = start_date + timedelta(days=i)
-        weekly_trend.append(day_minutes.get(d, 0))
+        daily_map[d] = {'total': 0, 'apps': defaultdict(int), 'names': {}}
 
-    today_total = day_minutes.get(today, 0)
+    for s in sessions:
+        if not s.started_at: continue
+        
+        # Süre hesapla
+        mins = 0
+        if isinstance(s.payload, dict) and "total_seconds" in s.payload:
+            mins = int(s.payload["total_seconds"]) // 60
+        elif s.ended_at:
+            mins = int((s.ended_at - s.started_at).total_seconds()) // 60
+            
+        if mins <= 0: continue
 
-    # Şimdilik sabit limit: 240 dk (4 saat)
-    allowed_daily_minutes = 240
-    today_remaining = max(allowed_daily_minutes - today_total, 0)
+        d_key = s.started_at.date()
+        if d_key in daily_map:
+            daily_map[d_key]['total'] += mins
+            pkg = s.package_name or "unknown"
+            daily_map[d_key]['apps'][pkg] += mins
+            
+            # Uygulama adını kaydet
+            potential_name = None
+            if isinstance(s.payload, dict):
+                potential_name = s.payload.get("app_name")
+            
+            # Eğer payload'dan gelen isim doluysa onu kullan, yoksa paket adını kullan
+            final_app_name = potential_name if potential_name else pkg
+            
+            daily_map[d_key]['names'][pkg] = final_app_name
 
-    # 5) En çok kullanılan ilk 5 uygulama
-    top = sorted(app_minutes.items(), key=lambda x: x[1], reverse=True)[:5]
-    top_items = [
-        AppUsageItem(
-            app_name=app_names.get(pkg, pkg),
-            package_name=pkg,
-            category=None,
-            minutes=mins,
-        )
-        for pkg, mins in top
-    ]
+    # Response objesini oluştur
+    weekly_breakdown = []
+    # Tarih sırasına göre listeye çevir
+    for i in range(7):
+        d = start_date + timedelta(days=i)
+        data = daily_map[d]
+        
+        # O günün en çok kullanılanlarını sırala
+        sorted_apps = sorted(data['apps'].items(), key=lambda x: x[1], reverse=True)
+        
+        app_items = [
+            AppUsageItem(
+                package_name=pkg,
+                # "or pkg" ekleyerek None gelirse paket ismini basmasını sağlıyoruz
+                app_name=data['names'].get(pkg) or pkg, 
+                minutes=m
+            ) for pkg, m in sorted_apps
+        ]
 
-    # 6) Bedtime şimdilik yok (child_settings'e sonra bağlarız)
-    bedtime_start = None
-    bedtime_end = None
+        weekly_breakdown.append(DailyStat(
+            date=d,
+            total_minutes=data['total'],
+            apps=app_items
+        ))
 
+    today_stat = daily_map[today]
+    
     return DashboardResponse(
         child_name=child.full_name or "Çocuk",
-        today_total_minutes=today_total,
-        today_remaining_minutes=today_remaining,
-        weekly_trend=weekly_trend,
-        top_apps=top_items,
-        bedtime_start=bedtime_start,
-        bedtime_end=bedtime_end,
+        today_total_minutes=today_stat['total'],
+        weekly_breakdown=weekly_breakdown,
+        bedtime_start="21:30",
+        bedtime_end="07:00"
     )

@@ -52,5 +52,6 @@ def parent_login(
     return ParentLoginResponse(
         token=token,
         refreshToken=None,
-        deviceId=str(target_device.id)  # <-- Artık sabit cihaz ID'si dönecek
+        deviceId=str(target_device.id),  # <-- Artık sabit cihaz ID'si dönecek
+        userId=str(user.id)
     )

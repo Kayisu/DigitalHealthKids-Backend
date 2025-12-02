@@ -28,14 +28,13 @@ class AppUsageItem(BaseModel):
     app_name: str
     package_name: str
     minutes: int
-
-# 🔥 YENİ: Her günün kendi detaylı raporu var
 class DailyStat(BaseModel):
     date: date          # 2025-11-29
     total_minutes: int
     apps: List[AppUsageItem] # O gün kullanılanlar
 
 class DashboardResponse(BaseModel):
+    user_name: str
     today_total_minutes: int
     weekly_breakdown: List[DailyStat] 
     bedtime_start: Optional[str] = None

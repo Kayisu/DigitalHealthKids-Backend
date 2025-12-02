@@ -155,6 +155,7 @@ def get_dashboard(user_id: UUID, db: Session = Depends(get_db)) -> DashboardResp
     today_stat_total = daily_map.get(today, {}).get('total', 0)
     
     return DashboardResponse(
+        user_name=user.full_name or "Kullanıcı",
         today_total_minutes=today_stat_total,
         weekly_breakdown=weekly_breakdown,
         bedtime_start="21:30",

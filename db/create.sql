@@ -1,30 +1,21 @@
+-- db/create.sql
+
 -- =========================================================
 --  EXTENSION
 -- =========================================================
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- =========================================================
---  CORE: USERS
+--  CORE: USERS (Hem Auth hem Profil)
 -- =========================================================
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     full_name TEXT,
+    birth_year INT,                 -- AI yaş analizi için buraya taşıdık
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
-
--- =========================================================
---  CORE: CHILD
--- =========================================================
-CREATE TABLE IF NOT EXISTS child (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    parent_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    full_name TEXT,
-    birth_year INT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
 
 -- =========================================================
 --  CORE: DEVICE
@@ -44,7 +35,7 @@ CREATE TABLE device (
 -- =========================================================
 CREATE TABLE app_category (
     id SERIAL PRIMARY KEY,
-    key TEXT NOT NULL UNIQUE,       -- 'social', 'video', 'games' ...
+    key TEXT NOT NULL UNIQUE,       -- 'social', 'video', 'games'
     display_name TEXT NOT NULL
 );
 
@@ -52,7 +43,7 @@ CREATE TABLE app_category (
 --  CORE: APP CATALOG
 -- =========================================================
 CREATE TABLE app_catalog (
-    package_name TEXT PRIMARY KEY,  -- Android packageName
+    package_name TEXT PRIMARY KEY,
     app_name TEXT NOT NULL,
     category_id INT,
     CONSTRAINT fk_app_catalog_category
@@ -60,27 +51,27 @@ CREATE TABLE app_catalog (
 );
 
 -- =========================================================
---  CORE: CHILD SETTINGS
+--  CORE: USER SETTINGS (Eski child_settings)
 -- =========================================================
-CREATE TABLE child_settings (
-    child_id UUID PRIMARY KEY,
+CREATE TABLE user_settings (
+    user_id UUID PRIMARY KEY,
     timezone VARCHAR,               -- 'Europe/Istanbul'
     nightly_start TIME,             -- ör: 21:30
     nightly_end TIME,               -- ör: 07:00
     min_night_minutes INT,
-    weekend_relax_pct INT,          -- %20 esneklik gibi
+    weekend_relax_pct INT,
     min_session_seconds INT,
     session_app_seconds INT,
-    CONSTRAINT fk_child_settings_child
-        FOREIGN KEY (child_id) REFERENCES users(id)
+    CONSTRAINT fk_user_settings_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- =========================================================
---  CORE: APP SESSION (usage oturumları)
+--  CORE: APP SESSION
 -- =========================================================
 CREATE TABLE app_session (
     id BIGSERIAL PRIMARY KEY,
-    child_id UUID NOT NULL,
+    user_id UUID NOT NULL,
     device_id UUID NOT NULL,
     package_name TEXT NOT NULL,
     started_at TIMESTAMPTZ,
@@ -89,68 +80,63 @@ CREATE TABLE app_session (
     payload JSONB,
     occurred_at TIMESTAMPTZ DEFAULT NOW(),
 
-    -- Sadece users ve device tablolarına bağladık, catalog şartını kaldırdık.
-    CONSTRAINT fk_app_session_child
-        FOREIGN KEY (child_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_app_session_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_app_session_device
-        FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE
-    CONSTRAINT unique_session_entry UNIQUE (child_id, device_id, package_name, started_at)
-    
+        FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE,
+    CONSTRAINT unique_session_entry UNIQUE (user_id, device_id, package_name, started_at)
 );
 
 -- =========================================================
---  CORE: FEATURE_DAILY (günlük özet feature'lar)
+--  ANALYTICS: DAILY FEATURES (AI Girdisi)
 -- =========================================================
 CREATE TABLE feature_daily (
-    child_id UUID NOT NULL,
+    user_id UUID NOT NULL,          -- Refactor: child_id -> user_id
     date DATE NOT NULL,
     total_minutes INT NOT NULL,
     night_minutes INT,
     gaming_ratio DECIMAL(4,2),
     social_ratio DECIMAL(4,2),
     session_count INT,
-    weekday SMALLINT,               -- 1=pzt ... 7=paz
+    weekday SMALLINT,
     weekend BOOLEAN,
 
-    PRIMARY KEY (child_id, date),
-    CONSTRAINT fk_feature_daily_child
-        FOREIGN KEY (child_id) REFERENCES users(id)
+    PRIMARY KEY (user_id, date),
+    CONSTRAINT fk_feature_daily_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- =========================================================
---  AI META: RISK_DIMENSION
+--  AI META: RISK DIMENSION & LEVEL
 -- =========================================================
 CREATE TABLE risk_dimension (
     id SMALLINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    key VARCHAR NOT NULL UNIQUE,    -- 'sleep', 'gaming', 'social', ...
+    key VARCHAR NOT NULL UNIQUE,    -- 'sleep', 'gaming', 'social'
     display_name VARCHAR
 );
 
--- =========================================================
---  AI META: RISK_LEVEL
--- =========================================================
 CREATE TABLE risk_level (
     id SMALLINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     key VARCHAR NOT NULL UNIQUE,    -- 'low', 'medium', 'high'
-    rank SMALLINT NOT NULL          -- 1 < 2 < 3
+    rank SMALLINT NOT NULL
 );
 
 -- =========================================================
---  AI: RISK_ASSESSMENT (çocuk x gün, boyut bazlı risk)
+--  AI: RISK ASSESSMENT (Risk Değerlendirmesi)
 -- =========================================================
 CREATE TABLE risk_assessment (
-    child_id UUID NOT NULL,
+    user_id UUID NOT NULL,          -- Refactor: child_id -> user_id
     as_of_date DATE NOT NULL,
     dimension_id SMALLINT NOT NULL,
     level_id SMALLINT NOT NULL,
-    prob DECIMAL(4,3),              -- modelin risk olasılığı
-    model_key VARCHAR,              -- 'v1_sleep_rf', 'v1_gaming_rf' ...
-    features JSONB,                 -- o güne dair feature snapshot
+    prob DECIMAL(4,3),              -- Modelin risk olasılığı
+    model_key VARCHAR,              -- 'v1_sleep_rf' vb.
+    features JSONB,                 -- O anki snapshot
 
-    PRIMARY KEY (child_id, as_of_date, dimension_id),
+    PRIMARY KEY (user_id, as_of_date, dimension_id),
 
-    CONSTRAINT fk_risk_assessment_child
-        FOREIGN KEY (child_id) REFERENCES users(id),
+    CONSTRAINT fk_risk_assessment_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_risk_assessment_dim
         FOREIGN KEY (dimension_id) REFERENCES risk_dimension(id),
     CONSTRAINT fk_risk_assessment_level
@@ -158,84 +144,82 @@ CREATE TABLE risk_assessment (
 );
 
 -- =========================================================
---  AI: WEEKLY_FORECAST (kullanım tahmini)
+--  AI: WEEKLY FORECAST (Kullanım Tahmini)
 -- =========================================================
 CREATE TABLE weekly_forecast (
-    child_id UUID NOT NULL,
+    user_id UUID NOT NULL,          -- Refactor: child_id -> user_id
     as_of_date DATE NOT NULL,
-    horizon_week SMALLINT NOT NULL, -- 1,2,3 ... n hafta sonrası
-    scenario VARCHAR NOT NULL,      -- 'baseline', 'reduced', ...
-    target VARCHAR,                 -- 'total_minutes', 'night_minutes', ...
+    horizon_week SMALLINT NOT NULL,
+    scenario VARCHAR NOT NULL,      -- 'baseline', 'reduced'
+    target VARCHAR,                 -- 'total_minutes'
     yhat_lo INT,
     yhat_hi INT,
-    model_key VARCHAR,              -- forecast modeli adı
+    model_key VARCHAR,
 
-    PRIMARY KEY (child_id, as_of_date, horizon_week, scenario),
+    PRIMARY KEY (user_id, as_of_date, horizon_week, scenario),
 
-    CONSTRAINT fk_weekly_forecast_child
-        FOREIGN KEY (child_id) REFERENCES users(id)
+    CONSTRAINT fk_weekly_forecast_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- =========================================================
---  POLICY: RULE (uygulanacak kural)
+--  POLICY: RULE (Kurallar)
 -- =========================================================
 CREATE TABLE policy_rule (
     id BIGSERIAL PRIMARY KEY,
-    child_id UUID NOT NULL,
-    source VARCHAR,                 -- 'ai', 'parent_manual', ...
-    target_category_id INT,         -- app_category.id
-    target_package TEXT,            -- spesifik app
-    action VARCHAR,                 -- 'limit', 'block', 'allow', 'warn'
-    param_int INT,                  -- ör: max minutes
-    allow_mask INT,                 -- binary flags vs. istersen
+    user_id UUID NOT NULL,          -- Refactor: child_id -> user_id
+    source VARCHAR,                 -- 'ai', 'parent_manual'
+    target_category_id INT,
+    target_package TEXT,
+    action VARCHAR,                 -- 'limit', 'block', 'warn'
+    param_int INT,
+    allow_mask INT,
     local_start TIME,
     local_end TIME,
-    active BOOLEAN,
+    active BOOLEAN DEFAULT TRUE,
     effective_at TIMESTAMPTZ,
     expires_at TIMESTAMPTZ,
 
-    CONSTRAINT fk_policy_rule_child
-        FOREIGN KEY (child_id) REFERENCES users(id),
+    CONSTRAINT fk_policy_rule_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_policy_rule_category
         FOREIGN KEY (target_category_id) REFERENCES app_category(id)
 );
 
 -- =========================================================
---  POLICY: EFFECT (kuralın etkisini ölçen log)
+--  POLICY: EFFECT (Etki Analizi)
 -- =========================================================
 CREATE TABLE policy_effect (
     id BIGSERIAL PRIMARY KEY,
-    child_id UUID NOT NULL,
+    user_id UUID NOT NULL,          -- Refactor: child_id -> user_id
     policy_rule_id BIGINT NOT NULL,
-    metric VARCHAR,                 -- 'total_minutes', 'night_minutes', ...
-    window_pre INT,                 -- kural öncesi gün sayısı
-    window_post INT,                -- kural sonrası gün sayısı
+    metric VARCHAR,
+    window_pre INT,
+    window_post INT,
     effect DECIMAL(6,3),
     ci_low DECIMAL(6,3),
     ci_high DECIMAL(6,3),
     p_value DECIMAL(6,3),
     as_of_date DATE,
-    model_key VARCHAR,              -- etki tahmin modeli
+    model_key VARCHAR,
 
-    CONSTRAINT fk_policy_effect_child
-        FOREIGN KEY (child_id) REFERENCES users(id),
+    CONSTRAINT fk_policy_effect_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_policy_effect_rule
         FOREIGN KEY (policy_rule_id) REFERENCES policy_rule(id)
 );
 
 -- =========================================================
---  AUDIT: ENFORCEMENT_LOG (politika uygulama logu)
+--  AUDIT: ENFORCEMENT LOG
 -- =========================================================
 CREATE TABLE enforcement_log (
     id BIGSERIAL PRIMARY KEY,
-    child_id UUID NOT NULL,
+    user_id UUID NOT NULL,          -- Refactor: child_id -> user_id
     package_name TEXT,
-    action VARCHAR,                 -- 'blocked', 'limited', 'notified', ...
+    action VARCHAR,
     action_at TIMESTAMPTZ DEFAULT NOW(),
     meta JSONB,
 
-    CONSTRAINT fk_enforcement_log_child
-        FOREIGN KEY (child_id) REFERENCES users(id),
-    CONSTRAINT fk_enforcement_log_package
-        FOREIGN KEY (package_name) REFERENCES app_catalog(package_name)
+    CONSTRAINT fk_enforcement_log_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

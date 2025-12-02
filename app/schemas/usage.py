@@ -14,7 +14,7 @@ class UsageEvent(BaseModel):
 
 
 class UsageReportRequest(BaseModel):
-    child_id: UUID
+    user_id: UUID
     device_id: UUID
     events: List[UsageEvent]
 
@@ -36,8 +36,7 @@ class DailyStat(BaseModel):
     apps: List[AppUsageItem] # O gün kullanılanlar
 
 class DashboardResponse(BaseModel):
-    child_name: str
     today_total_minutes: int
-    weekly_breakdown: List[DailyStat] # 🔥 Artık trend yerine bu var
+    weekly_breakdown: List[DailyStat] 
     bedtime_start: Optional[str] = None
     bedtime_end: Optional[str] = None

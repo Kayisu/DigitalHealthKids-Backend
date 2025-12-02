@@ -10,7 +10,7 @@ class Bedtime(BaseModel):
 
 
 class PolicyResponse(BaseModel):
-    child_id: UUID
+    user_id: UUID
     daily_limit_minutes: int
     blocked_apps: List[str] = []
     bedtime: Optional[Bedtime] = None

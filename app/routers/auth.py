@@ -37,7 +37,7 @@ def parent_login(
         new_device = Device(
             user_id=user.id,
             platform="android",
-            model="Child Device (Auto)",
+            model="User Device (Auto)",
             os_version="13.0",
             enrolled_at=datetime.utcnow()
         )
@@ -52,6 +52,5 @@ def parent_login(
     return ParentLoginResponse(
         token=token,
         refreshToken=None,
-        childId=str(user.id),
         deviceId=str(target_device.id)  # <-- Artık sabit cihaz ID'si dönecek
     )

@@ -11,10 +11,10 @@ router = APIRouter()
 
 
 @router.get("/current", response_model=PolicyResponse)
-def get_current_policy(child_id: UUID, db: Session = Depends(get_db)):
+def get_current_policy(user_id: UUID, db: Session = Depends(get_db)):
     # Örnek: aktif block rule'larını toplayalım
     rules = db.query(PolicyRule).filter(
-        PolicyRule.child_id == child_id,
+        PolicyRule.user_id == user_id,
         PolicyRule.active == True
     ).all()
 
@@ -24,9 +24,9 @@ def get_current_policy(child_id: UUID, db: Session = Depends(get_db)):
     ]
 
     # Şimdilik daily_limit + bedtime'i hardcode edelim
-    # sonra child_settings tablosunu da modele ekleriz.
+    # sonra user_settings tablosunu da modele ekleriz.
     return PolicyResponse(
-        child_id=child_id,
+        user_id=user_id,
         daily_limit_minutes=120,
         blocked_apps=blocked_apps,
         bedtime=Bedtime(start="21:30", end="07:00"),

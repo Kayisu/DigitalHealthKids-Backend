@@ -30,41 +30,32 @@ def report_usage(payload: UsageReportRequest, db: Session = Depends(get_db)):
     processed_count = 0
     
     for ev in payload.events:
-        # 1. Zaman Dönüşümleri
         raw_start = ev.start_time
         if raw_start.tzinfo is None:
             raw_start = raw_start.replace(tzinfo=TR_TZ)
             
-        # 2. Saati 00:00:00'a sabitle (Günlük Anahtar)
         normalized_start = raw_start.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        # Bitiş saati (Görsel amaçlı, gün sonu)
         normalized_end = normalized_start + timedelta(days=1) - timedelta(microseconds=1)
 
-        # 3. UPSERT İŞLEMİ (Varsa Güncelle, Yoksa Ekle)
-        # Bu yöntem DELETE + INSERT'ten çok daha güvenli ve hızlıdır.
-        # Çakışma olursa (ON CONFLICT), verileri günceller.
-        
         stmt = insert(AppSession).values(
             user_id=payload.user_id,
             device_id=payload.device_id,
             package_name=ev.app_package,
-            started_at=normalized_start,  # UNIQUE KEY parçası
+            started_at=normalized_start, 
             ended_at=normalized_end,
-            source="user_device",
+            source="user_device_daily_aggregate", 
             payload={
                 "app_name": ev.app_name,
                 "total_seconds": ev.total_seconds,
             },
         )
-        
-        # Çakışma durumunda yapılacak işlem:
         do_update_stmt = stmt.on_conflict_do_update(
-            constraint='unique_session_entry', # db/create.sql'deki constraint ismi
+            constraint='unique_session_entry', 
             set_={
                 'ended_at': stmt.excluded.ended_at,
                 'payload': stmt.excluded.payload,
-                'occurred_at': datetime.utcnow() # Güncellenme zamanını not düş
+                'occurred_at': datetime.utcnow()
             }
         )
 
@@ -73,7 +64,6 @@ def report_usage(payload: UsageReportRequest, db: Session = Depends(get_db)):
             processed_count += 1
         except Exception as e:
             print(f"Row error: {e}")
-            # Tek bir satır hatası tüm paketi yakmasın, devam et
             continue
 
     try:
@@ -95,7 +85,6 @@ def get_dashboard(user_id: UUID, db: Session = Depends(get_db)) -> DashboardResp
     today = now_tr.date()
     start_date = today - timedelta(days=6)
 
-    # View'den hazır hesaplanmış veriyi çek
     stats = (
         db.query(DailyAppUsageView)
         .filter(DailyAppUsageView.user_id == user_id)

@@ -1,14 +1,17 @@
 # app/routers/usage.py
+
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone, date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy import func
+# 🔥 ÖNEMLİ: PostgreSQL'e özel 'INSERT ON CONFLICT' (Upsert) yapısı
+from sqlalchemy.dialects.postgresql import insert 
 
 from app.db import get_db
-from app.models.core import AppSession, User
+from app.models.core import AppSession, User, DailyAppUsageView
 from app.schemas.usage import (
     DailyStat,
     UsageReportRequest,
@@ -19,48 +22,67 @@ from app.schemas.usage import (
 
 router = APIRouter()
 
-# Sabit TR Timezone (MVP için)
+# Sabit TR Timezone
 TR_TZ = timezone(timedelta(hours=3))
 
 @router.post("/report", response_model=UsageReportResponse)
 def report_usage(payload: UsageReportRequest, db: Session = Depends(get_db)):
-    inserted = 0
-    ignored = 0
-
+    processed_count = 0
+    
     for ev in payload.events:
-        # Gelen veriyi timezone aware yap
-        start_dt = ev.start_time
-        end_dt = ev.end_time
+        # 1. Zaman Dönüşümleri
+        raw_start = ev.start_time
+        if raw_start.tzinfo is None:
+            raw_start = raw_start.replace(tzinfo=TR_TZ)
+            
+        # 2. Saati 00:00:00'a sabitle (Günlük Anahtar)
+        normalized_start = raw_start.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=TR_TZ)
-        if end_dt.tzinfo is None:
-            end_dt = end_dt.replace(tzinfo=TR_TZ)
+        # Bitiş saati (Görsel amaçlı, gün sonu)
+        normalized_end = normalized_start + timedelta(days=1) - timedelta(microseconds=1)
 
-        session = AppSession(
+        # 3. UPSERT İŞLEMİ (Varsa Güncelle, Yoksa Ekle)
+        # Bu yöntem DELETE + INSERT'ten çok daha güvenli ve hızlıdır.
+        # Çakışma olursa (ON CONFLICT), verileri günceller.
+        
+        stmt = insert(AppSession).values(
             user_id=payload.user_id,
             device_id=payload.device_id,
             package_name=ev.app_package,
-            started_at=start_dt,
-            ended_at=end_dt,
+            started_at=normalized_start,  # UNIQUE KEY parçası
+            ended_at=normalized_end,
             source="user_device",
             payload={
                 "app_name": ev.app_name,
                 "total_seconds": ev.total_seconds,
             },
         )
-        try:
-            db.add(session)
-            db.commit() 
-            inserted += 1
-        except IntegrityError:
-            db.rollback() 
-            ignored += 1
-        except Exception as e:
-            db.rollback()
-            print(f"Error inserting: {e}")
+        
+        # Çakışma durumunda yapılacak işlem:
+        do_update_stmt = stmt.on_conflict_do_update(
+            constraint='unique_session_entry', # db/create.sql'deki constraint ismi
+            set_={
+                'ended_at': stmt.excluded.ended_at,
+                'payload': stmt.excluded.payload,
+                'occurred_at': datetime.utcnow() # Güncellenme zamanını not düş
+            }
+        )
 
-    return UsageReportResponse(status="ok", inserted=inserted)
+        try:
+            db.execute(do_update_stmt)
+            processed_count += 1
+        except Exception as e:
+            print(f"Row error: {e}")
+            # Tek bir satır hatası tüm paketi yakmasın, devam et
+            continue
+
+    try:
+        db.commit()
+        return UsageReportResponse(status="ok", inserted=processed_count)
+    except Exception as e:
+        db.rollback()
+        print(f"Commit error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/dashboard", response_model=DashboardResponse)
@@ -69,89 +91,48 @@ def get_dashboard(user_id: UUID, db: Session = Depends(get_db)) -> DashboardResp
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Şu anki TR saati
     now_tr = datetime.now(TR_TZ)
     today = now_tr.date()
-
-    # Son 7 günü kapsayacak şekilde (Bugün + 6 gün geri)
-    # Eksik gün görünmemesi için 7 gün geriye gidiyoruz.
     start_date = today - timedelta(days=6)
-    
-    # DB sorgusu için başlangıç zamanı (Günün 00:00:00'ı)
-    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=TR_TZ)
 
-    sessions = (
-        db.query(AppSession)
-        .filter(AppSession.user_id == user_id)
-        .filter(AppSession.started_at >= start_dt)
+    # View'den hazır hesaplanmış veriyi çek
+    stats = (
+        db.query(DailyAppUsageView)
+        .filter(DailyAppUsageView.user_id == user_id)
+        .filter(DailyAppUsageView.usage_date >= start_date)
         .all()
     )
 
-    # daily_map: { date: { 'total': 0, 'apps': { 'pkg': minutes }, 'names': {} } }
     daily_map = {}
-    
-    # 7 Günlük şablonu oluştur (Eskiden yeniye)
     for i in range(7):
         d = start_date + timedelta(days=i)
-        daily_map[d] = {'total': 0, 'apps': defaultdict(int), 'names': {}}
+        daily_map[d] = {'total': 0, 'apps': []}
 
-    for s in sessions:
-        if not s.started_at: continue
-        
-        # Session tarihini TR saatine göre al
-        s_date = s.started_at.astimezone(TR_TZ).date()
+    for row in stats:
+        d = row.usage_date
+        if d in daily_map:
+            daily_map[d]['total'] += row.total_minutes
+            daily_map[d]['apps'].append(
+                AppUsageItem(
+                    package_name=row.package_name,
+                    app_name=row.package_name, 
+                    minutes=row.total_minutes
+                )
+            )
 
-        # Eğer hesaplanan tarih aralığımızın dışındaysa (örn: çok eski veya gelecek) atla
-        if s_date not in daily_map:
-            continue
-
-        # Süre hesapla
-        mins = 0
-        if isinstance(s.payload, dict) and "total_seconds" in s.payload:
-            mins = int(s.payload["total_seconds"]) // 60
-        elif s.ended_at:
-            mins = int((s.ended_at - s.started_at).total_seconds()) // 60
-            
-        if mins <= 0: continue
-
-        daily_map[s_date]['total'] += mins
-        pkg = s.package_name or "unknown"
-        daily_map[s_date]['apps'][pkg] += mins
-        
-        # İsim belirle
-        potential_name = None
-        if isinstance(s.payload, dict):
-            potential_name = s.payload.get("app_name")
-        
-        final_app_name = potential_name if potential_name else pkg
-        daily_map[s_date]['names'][pkg] = final_app_name
-
-    # Response oluştur
     weekly_breakdown = []
-    
-    # daily_map anahtarlarını sıralı dönüyoruz
     sorted_dates = sorted(daily_map.keys())
-    
+
     for d in sorted_dates:
         data = daily_map[d]
+        sorted_apps = sorted(data['apps'], key=lambda x: x.minutes, reverse=True)
         
-        sorted_apps = sorted(data['apps'].items(), key=lambda x: x[1], reverse=True)
-        
-        app_items = [
-            AppUsageItem(
-                package_name=pkg,
-                app_name=data['names'].get(pkg) or pkg, 
-                minutes=m
-            ) for pkg, m in sorted_apps
-        ]
-
         weekly_breakdown.append(DailyStat(
             date=d,
             total_minutes=data['total'],
-            apps=app_items
+            apps=sorted_apps
         ))
 
-    # Bugünün verisi (Listenin sonuncusu bugündür)
     today_stat_total = daily_map.get(today, {}).get('total', 0)
     
     return DashboardResponse(

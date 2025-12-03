@@ -65,6 +65,13 @@ class AppCatalog(Base):
     app_name = Column(Text, nullable=False)
     category_id = Column(Integer, ForeignKey("app_category.id"))
     category = relationship("AppCategory", backref="apps")
+class DailyAppUsageView(Base):
+    __tablename__ = "view_daily_app_usage"
+    user_id = Column(UUID(as_uuid=True), primary_key=True)
+    usage_date = Column(Date, primary_key=True)
+    package_name = Column(Text, primary_key=True)
+    total_minutes = Column(Integer)
+    session_count = Column(Integer)
 
 # 2. AI & ANALYTICS TABLOLARI (Refactor Edilmiş Hali)
 class FeatureDaily(Base):

@@ -86,6 +86,26 @@ CREATE TABLE app_session (
         FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE,
     CONSTRAINT unique_session_entry UNIQUE (user_id, device_id, package_name, started_at)
 );
+-- =========================================================
+--  CORE: DAILY USAGE LOG
+-- =========================================================
+
+CREATE TABLE daily_usage_log (
+    user_id UUID NOT NULL,
+    device_id UUID NOT NULL,
+    usage_date DATE NOT NULL,
+    package_name TEXT NOT NULL,
+    app_name TEXT,
+    total_seconds INT DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+    CONSTRAINT pk_daily_usage PRIMARY KEY (user_id, device_id, usage_date, package_name),
+    
+    CONSTRAINT fk_daily_usage_user 
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_daily_usage_device
+        FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE
+);
 
 -- =========================================================
 --  ANALYTICS: DAILY FEATURES (AI Girdisi)

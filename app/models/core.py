@@ -96,3 +96,15 @@ class WeeklyForecast(Base):
     yhat_lo = Column(Integer)
     yhat_hi = Column(Integer)
     model_key = Column(String)
+class DailyUsageLog(Base):
+    __tablename__ = "daily_usage_log"
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
+    
+    # 🔥 AŞAĞIDAKİ SATIR EKSİK OLABİLİR, BUNU EKLE:
+    device_id = Column(UUID(as_uuid=True), ForeignKey("device.id"), primary_key=True) 
+    
+    usage_date = Column(Date, primary_key=True)
+    package_name = Column(Text, primary_key=True)
+    app_name = Column(Text)
+    total_seconds = Column(Integer)
+    updated_at = Column(DateTime, default=datetime.utcnow)

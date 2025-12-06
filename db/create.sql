@@ -55,13 +55,14 @@ CREATE TABLE app_catalog (
 -- =========================================================
 CREATE TABLE user_settings (
     user_id UUID PRIMARY KEY,
-    timezone VARCHAR,               -- 'Europe/Istanbul'
-    nightly_start TIME,             -- ör: 21:30
-    nightly_end TIME,               -- ör: 07:00
+    timezone VARCHAR,               
+    nightly_start TIME,             
+    nightly_end TIME,               
     min_night_minutes INT,
     weekend_relax_pct INT,
     min_session_seconds INT,
     session_app_seconds INT,
+    daily_limit_minutes INT DEFAULT 120,
     CONSTRAINT fk_user_settings_user
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

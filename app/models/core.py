@@ -45,6 +45,7 @@ class UserSettings(Base):
     __tablename__ = "user_settings"
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
     timezone = Column(String)
+    daily_limit_minutes = Column(Integer, default=120) 
     nightly_start = Column(Time)
     nightly_end = Column(Time)
     min_night_minutes = Column(Integer)
@@ -99,10 +100,7 @@ class WeeklyForecast(Base):
 class DailyUsageLog(Base):
     __tablename__ = "daily_usage_log"
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
-    
-    # 🔥 AŞAĞIDAKİ SATIR EKSİK OLABİLİR, BUNU EKLE:
     device_id = Column(UUID(as_uuid=True), ForeignKey("device.id"), primary_key=True) 
-    
     usage_date = Column(Date, primary_key=True)
     package_name = Column(Text, primary_key=True)
     app_name = Column(Text)

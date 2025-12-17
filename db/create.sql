@@ -121,6 +121,7 @@ CREATE TABLE feature_daily (
     session_count INT,
     weekday SMALLINT,
     weekend BOOLEAN,
+    is_holiday BOOLEAN DEFAULT FALSE,
 
     PRIMARY KEY (user_id, date),
     CONSTRAINT fk_feature_daily_user

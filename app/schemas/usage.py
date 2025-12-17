@@ -5,11 +5,11 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 class UsageEvent(BaseModel):
-    app_package: str
+    package_name: str
     app_name: Optional[str] = None
     timestamp_start: int
     timestamp_end: int
-    total_seconds: int = Field(ge=0)
+    duration_seconds: int = Field(ge=0)
 
 
 class UsageReportRequest(BaseModel):
@@ -30,7 +30,10 @@ class AppUsageItem(BaseModel):
 class DailyStat(BaseModel):
     date: str # date objesi yerine str dönebiliriz, frontend parsing yapıyor zaten
     total_minutes: int
-    apps: List[AppUsageItem]
+    category: Optional[str] = None
+    
+    class Config:
+        orm_mode = True 
 
 class DashboardResponse(BaseModel):
     user_name: str

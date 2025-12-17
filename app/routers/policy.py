@@ -73,8 +73,6 @@ def update_settings(
         settings = UserSettings(user_id=user_id)
         db.add(settings)
 
-    # --- 🔥 DÜZELTME BAŞLANGICI ---
-    # Varsayılan olarak NULL (Kısıtlama yok)
     t_start = None
     t_end = None
 
@@ -92,6 +90,42 @@ def update_settings(
     settings.nightly_start = t_start
     settings.nightly_end = t_end
     settings.weekend_relax_pct = payload.weekend_relax_pct
+    
+    if payload.blocked_packages is not None:
+        # 1. Gelen liste (Set olarak işlem yapmak daha hızlı)
+        new_blocked_set = set(payload.blocked_packages)
+
+        # 2. Mevcut kuralları çek
+        existing_rules = db.query(PolicyRule).filter(
+            PolicyRule.user_id == user_id,
+            PolicyRule.action == "block"
+        ).all()
+
+        # Mevcut kuralları bir map'e al: {package_name: rule_object}
+        rules_map = {r.target_package: r for r in existing_rules}
+
+        # 3. Gelen listedeki her paket için işlem yap
+        for pkg in new_blocked_set:
+            if pkg in rules_map:
+                # Kural zaten var, aktif değilse aktifleştir
+                if not rules_map[pkg].active:
+                    rules_map[pkg].active = True
+            else:
+                # Kural yok, yeni oluştur
+                new_rule = PolicyRule(
+                    user_id=user_id,
+                    target_package=pkg,
+                    action="block",
+                    source="parent_settings",
+                    active=True,
+                    effective_at=datetime.utcnow()
+                )
+                db.add(new_rule)
+        
+        # 4. Listede OLMAYAN ama veritabanında AKTİF olanları pasife çek (Yasağı kaldırılanlar)
+        for pkg, rule in rules_map.items():
+            if pkg not in new_blocked_set and rule.active:
+                rule.active = False
     
     db.commit()
     

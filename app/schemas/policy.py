@@ -9,6 +9,7 @@ class PolicySettingsRequest(BaseModel):
     bedtime_start: Optional[str] = None
     bedtime_end: Optional[str] = None
     weekend_relax_pct: int = 0
+    blocked_packages: Optional[List[str]] = None
     
 class Bedtime(BaseModel):
     start: str

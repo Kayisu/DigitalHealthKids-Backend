@@ -1,13 +1,13 @@
-# app/routers/usage.py
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
-
 from app.db import get_db
-from app.models.core import DailyUsageLog, User
+from app.models.core import DailyUsageLog, AppSession, User
 from app.schemas.usage import UsageReportRequest, UsageReportResponse, DashboardResponse, DailyStat, AppUsageItem
+from app.services.analytics import calculate_daily_features 
+from app.services.categorizer import get_or_create_app_entry
 
 router = APIRouter()
 TR_TZ = timezone(timedelta(hours=3))
@@ -17,32 +17,44 @@ def report_usage(payload: UsageReportRequest, db: Session = Depends(get_db)):
     processed_count = 0
     
     for ev in payload.events:
-        # 🔥 ARTIK HESAP YOK. Android ne derse o.
-        # ev.date_str -> "2025-12-03" geliyor.
-        try:
-            # String'i date objesine çeviriyoruz sadece DB için
-            usage_date = datetime.strptime(ev.date_str, "%Y-%m-%d").date()
-        except ValueError:
-            continue # Format bozuksa atla
+        start_dt = datetime.fromtimestamp(ev.timestamp_start / 1000.0)
+        end_dt = datetime.fromtimestamp(ev.timestamp_end / 1000.0)
+        usage_date = start_dt.date()
+
+        # 1. AppSession (AI Detaylı Veri) - Buraya app_name yazmasak da olur, yer tasarrufu.
+        session_entry = AppSession(
+            user_id=payload.user_id,
+            device_id=payload.device_id,
+            package_name=ev.package_name,
+            started_at=start_dt,
+            ended_at=end_dt,
+            source="android_sync"
+        )
+        db.add(session_entry)
+
 
         stmt = insert(DailyUsageLog).values(
             user_id=payload.user_id,
             device_id=payload.device_id,
             usage_date=usage_date,
-            package_name=ev.app_package,
-            app_name=ev.app_name,
-            total_seconds=ev.total_seconds,
+            package_name=ev.package_name,
+            app_name=ev.app_name, 
+            total_seconds=ev.duration_seconds,
             updated_at=datetime.utcnow()
         )
         
         do_update_stmt = stmt.on_conflict_do_update(
             constraint='pk_daily_usage',
             set_={
-                'total_seconds': stmt.excluded.total_seconds,
-                'app_name': stmt.excluded.app_name,
+                'total_seconds': DailyUsageLog.total_seconds + stmt.excluded.total_seconds,
+                'app_name': stmt.excluded.app_name, 
                 'updated_at': datetime.utcnow()
             }
         )
+        
+        unique_packages = {ev.package_name for ev in payload.events}
+        for pkg in unique_packages:
+         get_or_create_app_entry(pkg, db)
 
         try:
             db.execute(do_update_stmt)
@@ -53,14 +65,33 @@ def report_usage(payload: UsageReportRequest, db: Session = Depends(get_db)):
 
     try:
         db.commit()
-        return UsageReportResponse(status="ok", inserted=processed_count)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    
+    try:
+        unique_dates = set()
+        for ev in payload.events:
+             # Timestamp -> Date dönüşümü (TR Saatine göre)
+             # Eğer ev.timestamp_start yoksa hata almamak için kontrol eklenebilir
+             if hasattr(ev, 'timestamp_start'):
+                 start_dt = datetime.fromtimestamp(ev.timestamp_start / 1000.0, TR_TZ)
+                 unique_dates.add(start_dt.date())
+             # Eski versiyon (date_str) uyumluluğu için gerekirse else bloğu eklenebilir
+        
+        for d in unique_dates:
+            # Her bir gün için feature hesapla (Gece kullanımı, oyun oranı vs.)
+            calculate_daily_features(payload.user_id, d, db)
+            
+    except Exception as e:
+        # Analiz patlasa bile raporlama başarılı dönmeli, client'ı üzmeyelim.
+        print(f"Analytics Error: {e}")
+
+    return UsageReportResponse(status="ok", inserted=processed_count)
 
 @router.get("/dashboard", response_model=DashboardResponse)
 def get_dashboard(user_id: UUID, db: Session = Depends(get_db)):
-    # ... Dashboard mantığı aynı kalabilir, sadece veri çekme ...
+ 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

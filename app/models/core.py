@@ -79,13 +79,14 @@ class FeatureDaily(Base):
     __tablename__ = "feature_daily"
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
     date = Column(Date, primary_key=True)
-    total_minutes = Column(Integer, nullable=False)
-    night_minutes = Column(Integer)
-    gaming_ratio = Column(DECIMAL(4,2))
-    social_ratio = Column(DECIMAL(4,2))
-    session_count = Column(Integer)
-    weekday = Column(SmallInteger)
+    total_minutes = Column(Integer, nullable=False, default=0)
+    night_minutes = Column(Integer, default=0) # Gece ihlal süresi
+    gaming_ratio = Column(DECIMAL(4,2), default=0.0)
+    social_ratio = Column(DECIMAL(4,2), default=0.0)
+    session_count = Column(Integer, default=0)
+    weekday = Column(SmallInteger) # 0=Pzt, 6=Paz
     weekend = Column(Boolean)
+    is_holiday = Column(Boolean, default=False)
 
 class WeeklyForecast(Base):
     __tablename__ = "weekly_forecast"

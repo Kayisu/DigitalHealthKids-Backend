@@ -7,9 +7,10 @@ from pydantic import BaseModel, Field
 class UsageEvent(BaseModel):
     app_package: str
     app_name: Optional[str] = None
-    date_str: str # 🔥 DEĞİŞTİ: Artık "YYYY-MM-DD" formatında string bekliyoruz.
+    timestamp_start: int
+    timestamp_end: int
     total_seconds: int = Field(ge=0)
-    # start_time ve end_time'ı sildik, kafa karıştırıyorlardı.
+
 
 class UsageReportRequest(BaseModel):
     user_id: UUID

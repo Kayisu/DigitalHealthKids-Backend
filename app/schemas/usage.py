@@ -26,11 +26,13 @@ class AppUsageItem(BaseModel):
     app_name: str
     package_name: str
     minutes: int
+    category: Optional[str] = None
 
 class DailyStat(BaseModel):
     date: str # date objesi yerine str dönebiliriz, frontend parsing yapıyor zaten
     total_minutes: int
     category: Optional[str] = None
+    apps: List[AppUsageItem] = []
     
     class Config:
         orm_mode = True 

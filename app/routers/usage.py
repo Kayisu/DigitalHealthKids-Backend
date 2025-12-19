@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks 
 from sqlalchemy.orm import Session
@@ -9,8 +9,11 @@ from app.schemas.usage import UsageReportRequest, UsageReportResponse, Dashboard
 from app.services.analytics import calculate_daily_features 
 from app.services.categorizer import get_or_create_app_entry
 from app.models.core import AppCatalog, AppCategory 
+import time as perf_time
 
 router = APIRouter()
+
+# Türkiye için UTC+3 saat dilimini tanımla
 TR_TZ = timezone(timedelta(hours=3))
 
 @router.post("/report", response_model=UsageReportResponse)
@@ -18,70 +21,122 @@ def report_usage(
     payload: UsageReportRequest, 
     background_tasks: BackgroundTasks, 
     db: Session = Depends(get_db)):
-    
-    
-    
-    # Veritabanında olmayan uygulama paketlerini bir kerede topluca ekle
-    unique_packages = {ev.package_name for ev in payload.events}
-    for pkg in unique_packages:
-        get_or_create_app_entry(db, pkg)
 
-    # Her bir günlük kullanım özetini veritabanına işle
-    for ev in payload.events:
-        # Gelen timestamp'e göre doğru tarihi hesapla
-        # Not: Backend'in zaman dilimi ayarına göre start_dt kullanmak daha güvenilir.
-        start_dt = datetime.fromtimestamp(ev.timestamp_start / 1000.0)
-        usage_date = start_dt.date()
+    t0 = perf_time.perf_counter()
+    print("USAGE REPORT step=start_handler")
 
-        # DailyUsageLog için UPSERT (insert or update) ifadesini hazırla
-        stmt = insert(DailyUsageLog).values(
-            user_id=payload.user_id,
-            device_id=payload.device_id,
-            usage_date=usage_date,
-            package_name=ev.package_name,
-            app_name=ev.app_name, 
-            total_seconds=ev.duration_seconds, 
-            updated_at=datetime.utcnow()
-        )
-        
-        # Eğer aynı gün, aynı kullanıcı, aynı cihaz ve aynı paket için kayıt varsa,
-        # total_seconds'ı üzerine ekle.
-            # Lütfen bu kodun sunucunuzda aktif olduğundan emin olun.
-        do_update_stmt = stmt.on_conflict_do_update(
-            constraint='pk_daily_usage',
-            set_={
-                # EN KRİTİK SATIR: Toplama yok, direkt üzerine yazma var.
-                'total_seconds': stmt.excluded.total_seconds,
-                'app_name': stmt.excluded.app_name, 
-                'updated_at': datetime.utcnow()
-            }
-        )
-    
-        
-        # Hazırlanan SQL ifadesini çalıştır
-        db.execute(do_update_stmt)
+    if not payload.events:
+        return UsageReportResponse(status="ok", inserted=0)
 
     try:
-        # Tüm işlemleri veritabanına işle
+        min_ts = min(e.timestamp_start for e in payload.events)
+        max_ts = max(e.timestamp_end for e in payload.events)
+        span_hours = (max_ts - min_ts) / 1000 / 3600
+        print(
+            f"USAGE REPORT start count={len(payload.events)} user={payload.user_id} "
+            f"device={payload.device_id} span_hours={span_hours:.2f} "
+            f"min={datetime.fromtimestamp(min_ts/1000, TR_TZ)} "
+            f"max={datetime.fromtimestamp(max_ts/1000, TR_TZ)}"
+        )
+    except Exception as e:
+        print(f"USAGE REPORT log calculation failed: {e}")
+
+    user_id = payload.user_id
+    device_id = payload.device_id
+
+    def _split_session(start_dt: datetime, end_dt: datetime):
+        current_start = start_dt
+        # Stop when we pass the real end time to avoid infinite loop on same-day sessions
+        while current_start <= end_dt:
+            day_end = datetime.combine(current_start.date(), time.max, tzinfo=TR_TZ)
+            segment_end = min(day_end, end_dt)
+            duration = (segment_end - current_start).total_seconds()
+            if duration > 0:
+                yield current_start.date(), duration
+            current_start = segment_end + timedelta(seconds=1)
+
+    aggregated = {}
+    dates_in_payload = set()
+
+    for ev in payload.events:
+        start_dt = datetime.fromtimestamp(ev.timestamp_start / 1000.0, TR_TZ)
+        end_dt = datetime.fromtimestamp(ev.timestamp_end / 1000.0, TR_TZ)
+
+        if end_dt <= start_dt:
+            continue
+
+        for usage_date, duration in _split_session(start_dt, end_dt):
+            dates_in_payload.add(usage_date)
+            key = (usage_date, ev.package_name)
+            if key not in aggregated:
+                aggregated[key] = {"duration": 0, "app_name": ev.app_name}
+            aggregated[key]["duration"] += duration
+            if ev.app_name:
+                aggregated[key]["app_name"] = ev.app_name
+
+    print(
+        f"USAGE REPORT step=after_aggregate agg={len(aggregated)} dates={len(dates_in_payload)} "
+        f"elapsed_ms={(perf_time.perf_counter()-t0)*1000:.1f}"
+    )
+
+    unique_packages = {pkg for (_, pkg) in aggregated.keys()}
+    print(f"USAGE REPORT step=unique_packages count={len(unique_packages)}")
+    for pkg in unique_packages:
+        get_or_create_app_entry(db, pkg)
+    print(
+        f"USAGE REPORT step=after_catalog elapsed_ms={(perf_time.perf_counter()-t0)*1000:.1f}"
+    )
+
+    rows = []
+    for (usage_date, pkg), data in aggregated.items():
+        rows.append({
+            "user_id": user_id,
+            "device_id": device_id,
+            "usage_date": usage_date,
+            "package_name": pkg,
+            "app_name": data["app_name"],
+            "total_seconds": int(data["duration"]),
+            "updated_at": datetime.utcnow()
+        })
+
+    if rows:
+        stmt = insert(DailyUsageLog).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[
+                DailyUsageLog.user_id,
+                DailyUsageLog.device_id,
+                DailyUsageLog.usage_date,
+                DailyUsageLog.package_name
+            ],
+            set_={
+                "app_name": stmt.excluded.app_name,
+                "total_seconds": stmt.excluded.total_seconds,
+                "updated_at": datetime.utcnow()
+            }
+        )
+        db.execute(stmt)
+    print(
+        f"USAGE REPORT step=after_upsert rows={len(rows)} elapsed_ms={(perf_time.perf_counter()-t0)*1000:.1f}"
+    )
+
+    try:
         db.commit()
+        print(
+            f"USAGE REPORT step=after_commit elapsed_ms={(perf_time.perf_counter()-t0)*1000:.1f}"
+        )
     except Exception as e:
         db.rollback()
-        # Hatanın detayını loglamak development için daha iyi olabilir
         print(f"DATABASE COMMIT ERROR: {e}") 
         raise HTTPException(status_code=500, detail=f"Database commit failed: {e}")
     
-    # Analizleri arka plan görevi olarak tetikle
-    try:
-        unique_dates = {datetime.fromtimestamp(ev.timestamp_start / 1000.0).date() for ev in payload.events}
-        for d in unique_dates:
-            # ÖNEMLİ: Arka plan görevine 'db' session'ı direkt geçmek hatalara yol açar.
-            # Bu yüzden bu şekilde bırakıyoruz, ancak production'da bu kısmın
-            # yeni bir session açacak şekilde refactor edilmesi gerekir.
-            background_tasks.add_task(calculate_daily_features, payload.user_id, d, db)
-    except Exception as e:
-        print(f"Analytics Error: {e}")
+    # Arka plan görevleri
+    for d in dates_in_payload:
+        background_tasks.add_task(calculate_daily_features, user_id, d, db)
+    print("USAGE REPORT step=scheduled_background")
 
     return UsageReportResponse(status="ok", inserted=len(payload.events))
+
+
 
 @router.get("/dashboard", response_model=DashboardResponse)
 def get_dashboard(user_id: UUID, db: Session = Depends(get_db)):

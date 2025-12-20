@@ -57,6 +57,7 @@ def report_usage(
 
     aggregated = {}
     dates_in_payload = set()
+    session_rows = []
 
     for ev in payload.events:
         start_dt = datetime.fromtimestamp(ev.timestamp_start / 1000.0, TR_TZ)
@@ -64,6 +65,17 @@ def report_usage(
 
         if end_dt <= start_dt:
             continue
+
+        # Insert raw session
+        session_rows.append({
+            "user_id": user_id,
+            "device_id": device_id,
+            "package_name": ev.package_name,
+            "started_at": start_dt,
+            "ended_at": end_dt,
+            "source": "android_sync",
+            "payload": None,
+        })
 
         for usage_date, duration in _split_session(start_dt, end_dt):
             dates_in_payload.add(usage_date)
@@ -89,15 +101,26 @@ def report_usage(
 
     rows = []
     for (usage_date, pkg), data in aggregated.items():
+        total_seconds = int(data["duration"])
+        if total_seconds > 16 * 3600:
+            msg = f"implausible daily total pkg={pkg} date={usage_date} total_seconds={total_seconds}"
+            print(f"USAGE REPORT error={msg}")
+            raise HTTPException(status_code=422, detail=msg)
+
         rows.append({
             "user_id": user_id,
             "device_id": device_id,
             "usage_date": usage_date,
             "package_name": pkg,
             "app_name": data["app_name"],
-            "total_seconds": int(data["duration"]),
+            "total_seconds": total_seconds,
             "updated_at": datetime.utcnow()
         })
+
+    # Insert raw sessions (if any)
+    if session_rows:
+        db.execute(insert(AppSession), session_rows)
+        print(f"USAGE REPORT step=insert_sessions rows={len(session_rows)} elapsed_ms={(perf_time.perf_counter()-t0)*1000:.1f}")
 
     if rows:
         stmt = insert(DailyUsageLog).values(rows)

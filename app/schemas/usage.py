@@ -1,6 +1,7 @@
 # app/schemas/usage.py
 from datetime import datetime
 from typing import List, Optional
+from datetime import date
 from uuid import UUID
 from pydantic import BaseModel, Field
 
@@ -43,3 +44,25 @@ class DashboardResponse(BaseModel):
     weekly_breakdown: List[DailyStat]
     bedtime_start: Optional[str] = None
     bedtime_end: Optional[str] = None
+
+
+# App detail / hourly usage
+class HourlyUsage(BaseModel):
+    hour: int
+    minutes: int
+
+
+class SessionUsage(BaseModel):
+    started_at: datetime
+    ended_at: datetime
+    minutes: int
+
+
+class AppDetailResponse(BaseModel):
+    date: str
+    package_name: str
+    app_name: Optional[str] = None
+    total_minutes: int
+    night_minutes: int
+    hourly: List[HourlyUsage]
+    sessions: List[SessionUsage] = []

@@ -1,11 +1,20 @@
-from datetime import datetime, timedelta, timezone, time
+from datetime import datetime, timedelta, timezone, time, date
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks 
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 from app.db import get_db
-from app.models.core import DailyUsageLog, AppSession, User
-from app.schemas.usage import UsageReportRequest, UsageReportResponse, DashboardResponse, DailyStat, AppUsageItem
+from app.models.core import DailyUsageLog, AppSession, User, UserSettings
+from app.schemas.usage import (
+    UsageReportRequest,
+    UsageReportResponse,
+    DashboardResponse,
+    DailyStat,
+    AppUsageItem,
+    AppDetailResponse,
+    HourlyUsage,
+    SessionUsage,
+)
 from app.services.analytics import calculate_daily_features 
 from app.services.categorizer import get_or_create_app_entry
 from app.models.core import AppCatalog, AppCategory 
@@ -15,6 +24,37 @@ router = APIRouter()
 
 # Türkiye için UTC+3 saat dilimini tanımla
 TR_TZ = timezone(timedelta(hours=3))
+
+
+def _interval_overlap_minutes(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> float:
+    if a_end <= b_start or a_start >= b_end:
+        return 0.0
+    overlap_start = max(a_start, b_start)
+    overlap_end = min(a_end, b_end)
+    return max((overlap_end - overlap_start).total_seconds(), 0) / 60.0
+
+
+def _night_overlap_minutes(start_dt: datetime, end_dt: datetime, win_start_t: time, win_end_t: time) -> float:
+    minutes = 0.0
+    cursor = start_dt
+    while cursor < end_dt:
+        day_end = datetime.combine(cursor.date(), time.max, tzinfo=cursor.tzinfo)
+        seg_end = min(day_end, end_dt)
+
+        if win_start_t > win_end_t:
+            win1_start = datetime.combine(cursor.date(), win_start_t, tzinfo=cursor.tzinfo)
+            win1_end = datetime.combine(cursor.date(), time.max, tzinfo=cursor.tzinfo)
+            win2_start = datetime.combine(cursor.date(), time.min, tzinfo=cursor.tzinfo)
+            win2_end = datetime.combine(cursor.date(), win_end_t, tzinfo=cursor.tzinfo)
+            minutes += _interval_overlap_minutes(cursor, seg_end, win1_start, win1_end)
+            minutes += _interval_overlap_minutes(cursor, seg_end, win2_start, win2_end)
+        else:
+            win_start = datetime.combine(cursor.date(), win_start_t, tzinfo=cursor.tzinfo)
+            win_end = datetime.combine(cursor.date(), win_end_t, tzinfo=cursor.tzinfo)
+            minutes += _interval_overlap_minutes(cursor, seg_end, win_start, win_end)
+
+        cursor = seg_end + timedelta(seconds=1)
+    return minutes
 
 @router.post("/report", response_model=UsageReportResponse)
 def report_usage(
@@ -119,8 +159,19 @@ def report_usage(
 
     # Insert raw sessions (if any)
     if session_rows:
-        db.execute(insert(AppSession), session_rows)
-        print(f"USAGE REPORT step=insert_sessions rows={len(session_rows)} elapsed_ms={(perf_time.perf_counter()-t0)*1000:.1f}")
+        stmt_sess = insert(AppSession).values(session_rows)
+        stmt_sess = stmt_sess.on_conflict_do_nothing(
+            index_elements=[
+                AppSession.user_id,
+                AppSession.device_id,
+                AppSession.package_name,
+                AppSession.started_at,
+            ]
+        )
+        db.execute(stmt_sess)
+        print(
+            f"USAGE REPORT step=insert_sessions rows={len(session_rows)} elapsed_ms={(perf_time.perf_counter()-t0)*1000:.1f}"
+        )
 
     if rows:
         stmt = insert(DailyUsageLog).values(rows)
@@ -158,6 +209,85 @@ def report_usage(
     print("USAGE REPORT step=scheduled_background")
 
     return UsageReportResponse(status="ok", inserted=len(payload.events))
+
+
+@router.get("/app_detail", response_model=AppDetailResponse)
+def get_app_detail(
+    user_id: UUID,
+    package_name: str,
+    target_date: date,
+    db: Session = Depends(get_db)
+):
+    day_start = datetime.combine(target_date, time.min, tzinfo=TR_TZ)
+    day_end = datetime.combine(target_date, time.max, tzinfo=TR_TZ)
+
+    sessions = (
+        db.query(AppSession)
+        .filter(AppSession.user_id == user_id)
+        .filter(AppSession.package_name == package_name)
+        .filter(AppSession.started_at <= day_end)
+        .filter(AppSession.ended_at >= day_start)
+        .order_by(AppSession.started_at)
+        .all()
+    )
+
+    hourly = [0.0] * 24
+    total_minutes = 0.0
+    night_minutes = 0.0
+    session_items = []
+
+    bedtime_start = time(22, 0)
+    bedtime_end = time(7, 0)
+    custom = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+    if custom and custom.nightly_start:
+        bedtime_start = custom.nightly_start
+    if custom and custom.nightly_end:
+        bedtime_end = custom.nightly_end
+
+    for sess in sessions:
+        s = max(sess.started_at, day_start)
+        e = min(sess.ended_at, day_end)
+        if e <= s:
+            continue
+
+        duration_min = (e - s).total_seconds() / 60.0
+        total_minutes += duration_min
+        night_minutes += _night_overlap_minutes(s, e, bedtime_start, bedtime_end)
+
+        # Hourly bucket slicing
+        cursor = s
+        while cursor < e:
+            hour_boundary = (cursor.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+            seg_end = min(hour_boundary, e)
+            seg_min = max((seg_end - cursor).total_seconds(), 0) / 60.0
+            hourly[cursor.hour] += seg_min
+            cursor = seg_end
+
+        session_items.append(
+            SessionUsage(
+                started_at=s,
+                ended_at=e,
+                minutes=int(round(duration_min))
+            )
+        )
+
+    # App adı: katalogdan ya da session payload'dan
+    app_name = None
+    catalog = db.query(AppCatalog).filter(AppCatalog.package_name == package_name).first()
+    if catalog:
+        app_name = catalog.app_name
+    elif sessions:
+        app_name = getattr(sessions[0], "app_name", None)
+
+    return AppDetailResponse(
+        date=target_date.isoformat(),
+        package_name=package_name,
+        app_name=app_name,
+        total_minutes=int(round(total_minutes)),
+        night_minutes=int(round(night_minutes)),
+        hourly=[HourlyUsage(hour=i, minutes=int(round(m))) for i, m in enumerate(hourly)],
+        sessions=session_items,
+    )
 
 
 

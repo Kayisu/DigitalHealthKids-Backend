@@ -38,41 +38,55 @@ def calculate_daily_features(user_id: str, target_date: date, db: Session):
     total_minutes = 0
     night_minutes = 0
     cat_durations = {"game": 0, "social": 0, "video": 0, "education": 0, "other": 0}
-    
+
+    def overlap_minutes(start_dt: datetime, end_dt: datetime, win_start_t: time, win_end_t: time) -> float:
+        """Gece aralığı gün aşsa bile oturumun kesişen dakikasını hesapla."""
+        minutes = 0.0
+        cursor = start_dt
+        while cursor < end_dt:
+            day_end = datetime.combine(cursor.date(), time.max, tzinfo=cursor.tzinfo)
+            seg_end = min(day_end, end_dt)
+
+            if win_start_t > win_end_t:
+                # Gece yarısını geçen aralık: [win_start, 24:00) ve [00:00, win_end)
+                win1_start = datetime.combine(cursor.date(), win_start_t, tzinfo=cursor.tzinfo)
+                win1_end = datetime.combine(cursor.date(), time.max, tzinfo=cursor.tzinfo)
+                win2_start = datetime.combine(cursor.date(), time.min, tzinfo=cursor.tzinfo)
+                win2_end = datetime.combine(cursor.date(), win_end_t, tzinfo=cursor.tzinfo)
+                minutes += _interval_overlap_minutes(cursor, seg_end, win1_start, win1_end)
+                minutes += _interval_overlap_minutes(cursor, seg_end, win2_start, win2_end)
+            else:
+                win_start = datetime.combine(cursor.date(), win_start_t, tzinfo=cursor.tzinfo)
+                win_end = datetime.combine(cursor.date(), win_end_t, tzinfo=cursor.tzinfo)
+                minutes += _interval_overlap_minutes(cursor, seg_end, win_start, win_end)
+
+            cursor = seg_end + timedelta(seconds=1)
+        return minutes
+
+    def _interval_overlap_minutes(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> float:
+        if a_end <= b_start or a_start >= b_end:
+            return 0.0
+        overlap_start = max(a_start, b_start)
+        overlap_end = min(a_end, b_end)
+        return max((overlap_end - overlap_start).total_seconds(), 0) / 60.0
+
     for sess in sessions:
-        # Süre (Dakika)
         duration_sec = (sess.ended_at - sess.started_at).total_seconds()
         duration_min = duration_sec / 60.0
-        if duration_min < 0: continue
-        
+        if duration_min <= 0:
+            continue
+
         total_minutes += duration_min
-        
-        # --- Kategori Analizi ---
-        # Kataloğa bak, yoksa oluştur (ve tahmin et)
+
+        # Kategori
         app_entry = get_or_create_app_entry(db, sess.package_name)
         cat_key = "other"
         if app_entry.category:
             cat_key = app_entry.category.key
-        
         cat_durations[cat_key] = cat_durations.get(cat_key, 0) + duration_min
 
-        # --- Gece Analizi (Night Owl Profili İçin) ---
-        # Oturumun saati (sadece saat kısmı)
-        # Basit mantık: Başlangıç saati uyku aralığında mı?
-        # Detaylı mantık: Oturumun geceye denk gelen kısmını kesip almamız lazım ama
-        # MVP için başlangıç saati kontrolü yeterlidir.
-        s_time = sess.started_at.time()
-        
-        is_night = False
-        if bedtime_start > bedtime_end: # Örn: 22:00 -> 07:00 (Gece yarısını geçiyor)
-            if s_time >= bedtime_start or s_time < bedtime_end:
-                is_night = True
-        else: # Örn: 01:00 -> 06:00
-            if bedtime_start <= s_time < bedtime_end:
-                is_night = True
-        
-        if is_night:
-            night_minutes += duration_min
+        # Gece kesişimi (gerçek overlap)
+        night_minutes += overlap_minutes(sess.started_at, sess.ended_at, bedtime_start, bedtime_end)
 
     # 4. Oranları Hesapla
     total_m = max(total_minutes, 1) # Sıfıra bölünme hatası önlemi

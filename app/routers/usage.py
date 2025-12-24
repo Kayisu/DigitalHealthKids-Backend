@@ -278,11 +278,19 @@ def get_app_detail(
         app_name = catalog.app_name
     elif sessions:
         app_name = getattr(sessions[0], "app_name", None)
+        
+    category_name = None
+    if catalog and catalog.category:
+         category_name = catalog.category.display_name
+    elif catalog and catalog.category_id:
+         # İlişki yüklenmemişse ID'den bulma (Gerekirse)
+         pass
 
     return AppDetailResponse(
         date=target_date.isoformat(),
         package_name=package_name,
         app_name=app_name,
+        category=category_name,
         total_minutes=int(round(total_minutes)),
         night_minutes=int(round(night_minutes)),
         hourly=[HourlyUsage(hour=i, minutes=int(round(m))) for i, m in enumerate(hourly)],

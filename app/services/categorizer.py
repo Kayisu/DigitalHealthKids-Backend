@@ -4,10 +4,9 @@ import pandas as pd
 from sqlalchemy.orm import Session
 from app.models.core import AppCatalog, AppCategory
 
-# Singleton Data Loader
 class CategoryDataset:
     _instance = None
-    _data_map = {} # { "com.instagram.android": "SOCIAL", ... }
+    _data_map = {} 
     _loaded = False
 
     def __new__(cls):
@@ -16,94 +15,72 @@ class CategoryDataset:
         return cls._instance
 
     def load_data(self, csv_path="app/assets/app_data.csv"):
-        """
-        CSV dosyasını okur ve RAM'e {package_name: category} sözlüğü olarak atar.
-        """
+ 
         if self._loaded:
             return
 
         if not os.path.exists(csv_path):
-            print(f"⚠️ UYARI: Dataset bulunamadı: {csv_path}. Otomatik kategorizasyon çalışacak.")
+            print(f" Categorizer: Dataset bulunamadı ({csv_path}). Sadece isimden tahmin modu çalışacak.")
             return
 
         try:
-            # CSV okuma - Kolon isimlerini kendi datasetine göre güncellemen gerekebilir
-            # Örnek CSV kolonları: 'App', 'Category', 'Package Name'
-            # Biz burada 'App' isminden veya varsa 'Package Name'den eşleşme arayacağız.
+            print(f" Categorizer verisi yükleniyor: {csv_path}...")
+            # Sadece ihtiyacımız olan 'package_name' ve 'Category' kolonlarını alıyoruz
+            # CSV başlıkları: package_name, App, Category, Rating, Installs
+            df = pd.read_csv(csv_path, usecols=['package_name', 'Category'])
             
-            # Senaryo 1: Dataset'te package_name varsa (En Temizi)
-            # df = pd.read_csv(csv_path, usecols=['Package Name', 'Category'])
-            # self._data_map = pd.Series(df.Category.values, index=df['Package Name']).to_dict()
-
-            # Senaryo 2: Sadece App Name varsa (Hack yöntemi)
-            # Dataset büyük olduğu için sadece gerekli kolonları alıyoruz
-            df = pd.read_csv(csv_path, usecols=['App', 'Category']) 
+            # Veri temizliği: Kategorileri büyük harf yap
+            df['Category'] = df['Category'].astype(str).str.upper()
             
-            # Basit temizlik
-            df['Category'] = df['Category'].astype(str).str.upper().str.replace('_', ' ')
-            
-            # Hızlı erişim için sözlüğe çevir (App Name -> Category)
-            # Not: Package name'den App Name çıkarmak zor olduğu için 
-            # burayı "contains" mantığıyla aşağıda yöneteceğiz veya 
-            # dataseti "lowercase" yapıp saklayacağız.
-            self._data_map = pd.Series(df.Category.values, index=df['App'].str.lower()).to_dict()
+            # Dataframe'i sözlüğe çevir (Hız için)
+            self._data_map = pd.Series(
+                df.Category.values, 
+                index=df.package_name
+            ).to_dict()
             
             self._loaded = True
-            print(f"✅ Dataset yüklendi: {len(self._data_map)} uygulama.")
+            print(f" Categorizer Hazır: {len(self._data_map)} uygulama hafızaya alındı.")
             
         except Exception as e:
-            print(f"❌ Dataset yüklenirken hata: {e}")
+            print(f" Categorizer veri yükleme hatası: {e}")
 
     def lookup_category(self, package_name: str) -> str:
         """
-        Paket isminden kategori bulmaya çalışır.
+        Paket isminden kategori döner.
         """
         if not self._loaded:
+            # Eğer main.py'da yüklenmediyse burada yüklemeyi dene (Lazy loading)
             self.load_data()
 
-        pkg_lower = package_name.lower()
+        # 1. Tam Eşleşme
+        return self._data_map.get(package_name)
 
-        # 1. Tam eşleşme (Eğer dataset package_name içeriyorsa)
-        if pkg_lower in self._data_map:
-            return self._data_map[pkg_lower]
-
-        # 2. İsimden tahmin (Eğer dataset App Name içeriyorsa)
-        # Örn: "com.supercell.brawlstars" -> "brawl stars" dataset'te var mı?
-        # Bu işlem 50k satırda yavaş olabilir, o yüzden sadece map'te var mı diye bakıyoruz.
-        
-        # Basit heuristic: paketin son parçasını al (brawlstars)
-        parts = pkg_lower.split('.')
-        if len(parts) >= 3:
-            likely_name = parts[-1] # "brawlstars"
-            # Sözlükte "brawl stars" gibi geçiyor olabilir, fuzzy match zor.
-            # Şimdilik basit logic:
-            if likely_name in self._data_map:
-                return self._data_map[likely_name]
-
-        return None
-
-# Global instance
+# Global erişim nesnesi
 dataset_loader = CategoryDataset()
 
 def get_or_create_app_entry(db: Session, package_name: str) -> AppCatalog:
     """
-    Uygulamayı katalogda bulur, yoksa oluşturur ve kategorisini tahmin eder.
+    Uygulamayı katalogda bulur. Yoksa:
+    1. Dataset'e bakar.
+    2. Bulamazsa tahmin eder.
+    3. DB'ye kaydeder ve döner.
     """
+    # 1. Önce DB'ye bak (En hızlısı)
     entry = db.query(AppCatalog).filter_by(package_name=package_name).first()
     if entry:
         return entry
 
-    # 1. Datasetten Kategori Bak
+    # 2. DB'de yoksa, Dataset'ten Kategori Bak
     predicted_category_key = dataset_loader.lookup_category(package_name)
     
-    # 2. Bulunamazsa Kural Tabanlı (Fallback) Tahmin Yap
+    # 3. Dataset'te de yoksa, isminden tahmin et (Fallback)
     if not predicted_category_key:
         predicted_category_key = _predict_category_fallback(package_name)
 
-    # 3. Kategoriyi DB'den çek veya yarat
+    # 4. Kategori Objesini DB'den çek veya yarat
     category_obj = None
     if predicted_category_key:
-        # Kategori ismini temizle (GAME_ACTION -> Game)
+        # Kategori ismini güzelleştir (GAME_ACTION -> Game Action)
         clean_name = predicted_category_key.replace('_', ' ').title()
         
         category_obj = db.query(AppCategory).filter_by(key=predicted_category_key).first()
@@ -112,10 +89,13 @@ def get_or_create_app_entry(db: Session, package_name: str) -> AppCatalog:
             db.add(category_obj)
             db.flush() # ID oluşsun diye
 
-    # 4. Kataloğa Kaydet
-    # App Name'i paket isminden uyduruyoruz (com.google.android.youtube -> Youtube)
-    app_name_guess = package_name.split('.')[-1].capitalize()
+    # 5. Uygulama ismini tahmin et (com.google.android.youtube -> Youtube)
+    # Dataset'te App Name olsa bile basitlik için paketten üretiyoruz, 
+    # ama ileride dataset_loader'a app_name map de eklenebilir.
+    parts = package_name.split('.')
+    app_name_guess = parts[-1].capitalize() if parts else package_name
     
+    # 6. Kataloğa Kaydet
     entry = AppCatalog(
         package_name=package_name,
         app_name=app_name_guess,
@@ -133,15 +113,14 @@ def _predict_category_fallback(package_name: str) -> str:
     """
     p = package_name.lower()
     
-    if "game" in p or "android.play" in p:
-        return "GAME"
-    if "social" in p or "instagram" in p or "facebook" in p or "twitter" in p or "tiktok" in p:
-        return "SOCIAL"
-    if "video" in p or "youtube" in p or "netflix" in p:
-        return "VIDEO"
-    if "learn" in p or "edu" in p or "kids" in p:
-        return "EDUCATION"
-    if "map" in p or "nav" in p:
-        return "MAPS"
+    # Öncelikli Anahtar Kelimeler
+    if "game" in p or "play" in p: return "GAME"
+    if "social" in p or "gram" in p or "book" in p or "twitter" in p or "tiktok" in p: return "SOCIAL"
+    if "video" in p or "tube" in p or "stream" in p or "netflix" in p: return "VIDEO_PLAYERS"
+    if "learn" in p or "edu" in p or "kids" in p or "school" in p: return "EDUCATION"
+    if "shop" in p or "store" in p or "market" in p: return "SHOPPING"
+    if "map" in p or "nav" in p or "gps" in p: return "MAPS_AND_NAVIGATION"
+    if "messag" in p or "chat" in p or "whatsapp" in p or "telegram" in p: return "COMMUNICATION"
+    if "music" in p or "audio" in p or "spotify" in p: return "MUSIC_AND_AUDIO"
     
     return "OTHER"

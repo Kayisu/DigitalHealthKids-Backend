@@ -62,6 +62,7 @@ class AppDetailResponse(BaseModel):
     date: str
     package_name: str
     app_name: Optional[str] = None
+    category: Optional[str] = None
     total_minutes: int
     night_minutes: int
     hourly: List[HourlyUsage]

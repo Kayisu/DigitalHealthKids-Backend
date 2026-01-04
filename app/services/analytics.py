@@ -1,10 +1,11 @@
 # app/services/analytics.py
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
 from app.models.core import AppSession, FeatureDaily, UserSettings, AppCatalog, AppCategory
 from app.services.categorizer import get_or_create_app_entry
+from app.services.category_constants import CATEGORY_KEYS, DEFAULT_CATEGORY_KEY, canonicalize_category_key
 
 def calculate_daily_features(user_id: str, target_date: date, db: Session):
     """
@@ -13,10 +14,10 @@ def calculate_daily_features(user_id: str, target_date: date, db: Session):
     """
     
     # 1. O günün oturumlarını çek
-    # (Not: Timezone dönüşümü router'da yapılmıştı, burada DB'deki UTC/Local duruma göre filtreliyoruz)
-    # Basitlik için tüm günün kayıtlarını alıyoruz.
-    start_of_day = datetime.combine(target_date, time.min)
-    end_of_day = datetime.combine(target_date, time.max)
+    # Router tarafında TR_TZ ile kayıt edildiği için aynı timezone ile filtrele
+    tr_tz = timezone(timedelta(hours=3))
+    start_of_day = datetime.combine(target_date, time.min, tzinfo=tr_tz)
+    end_of_day = datetime.combine(target_date, time.max, tzinfo=tr_tz)
     
     sessions = db.query(AppSession).filter(
         AppSession.user_id == user_id,
@@ -25,7 +26,23 @@ def calculate_daily_features(user_id: str, target_date: date, db: Session):
     ).all()
     
     if not sessions:
-        return # Veri yoksa işlem yapma (veya 0 olarak kaydet)
+        # Veri yoksa günü 0'larla kaydedip idempotent davran.
+        feature_entry = db.query(FeatureDaily).filter_by(user_id=user_id, date=target_date).first()
+        if not feature_entry:
+            feature_entry = FeatureDaily(user_id=user_id, date=target_date)
+            db.add(feature_entry)
+
+        feature_entry.total_minutes = 0
+        feature_entry.night_minutes = 0
+        feature_entry.gaming_ratio = 0
+        feature_entry.social_ratio = 0
+        feature_entry.session_count = 0
+        feature_entry.weekday = target_date.weekday()
+        feature_entry.weekend = target_date.weekday() >= 5
+        feature_entry.is_holiday = feature_entry.weekend
+
+        db.commit()
+        return
 
     # 2. Kullanıcı Ayarlarını (Uyku Saati) Çek
     settings = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
@@ -37,7 +54,7 @@ def calculate_daily_features(user_id: str, target_date: date, db: Session):
     # 3. Metrikleri Hesapla
     total_minutes = 0
     night_minutes = 0
-    cat_durations = {"game": 0, "social": 0, "video": 0, "education": 0, "other": 0}
+    cat_durations = {key: 0 for key in CATEGORY_KEYS}
 
     def overlap_minutes(start_dt: datetime, end_dt: datetime, win_start_t: time, win_end_t: time) -> float:
         """Gece aralığı gün aşsa bile oturumun kesişen dakikasını hesapla."""
@@ -80,9 +97,9 @@ def calculate_daily_features(user_id: str, target_date: date, db: Session):
 
         # Kategori
         app_entry = get_or_create_app_entry(db, sess.package_name)
-        cat_key = "other"
-        if app_entry.category:
-            cat_key = app_entry.category.key
+        cat_key = DEFAULT_CATEGORY_KEY
+        if app_entry.category and app_entry.category.key:
+            cat_key = canonicalize_category_key(app_entry.category.key)
         cat_durations[cat_key] = cat_durations.get(cat_key, 0) + duration_min
 
         # Gece kesişimi (gerçek overlap)
@@ -90,7 +107,7 @@ def calculate_daily_features(user_id: str, target_date: date, db: Session):
 
     # 4. Oranları Hesapla
     total_m = max(total_minutes, 1) # Sıfıra bölünme hatası önlemi
-    gaming_ratio = (cat_durations.get("game", 0) / total_m)
+    gaming_ratio = (cat_durations.get("games", 0) / total_m)
     social_ratio = (cat_durations.get("social", 0) / total_m)
 
     # 5. FeatureDaily Tablosuna Yaz (Upsert)

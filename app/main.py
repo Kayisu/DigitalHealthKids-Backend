@@ -1,7 +1,7 @@
 # app/main.py
 from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
-from app.routers import auth, usage, policy
+from app.routers import auth, usage, policy, ai
 from app.services.categorizer import dataset_loader
 
 @asynccontextmanager
@@ -28,3 +28,4 @@ app = FastAPI(
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(usage.router, prefix="/api/usage", tags=["usage"])
 app.include_router(policy.router, prefix="/api/policy", tags=["policy"])
+app.include_router(ai.router, prefix="/api", tags=["ai"])

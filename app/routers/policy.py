@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
 from datetime import datetime
-from app.schemas.policy import ToggleBlockRequest
+from app.schemas.policy import ToggleBlockRequest, AutoPolicyResponse
 
 from app.db import get_db
 from app.models.policy import PolicyRule
@@ -12,8 +12,34 @@ from app.schemas.policy import (
     PolicyResponse, 
     Bedtime, 
     PolicySettingsRequest, 
-    BlockAppRequest
+    BlockAppRequest,
 )
+from app.services.auto_policy import apply_auto_policy, preview_auto_policy
+from app.models.core import User
+
+# Basit öneri seti (MVP): risk ve tahmine göre ebeveyne gösterilecek, otomatik uygulama yok
+RECOMMENDATIONS = [
+    {
+        "id": "reduce_weekday_10",
+        "label": "Hafta içi günlük süreyi %10 azalt",
+        "applies": lambda risk, profile: risk.lower() in {"orta", "yüksek"},
+    },
+    {
+        "id": "block_games_weeknights",
+        "label": "Hafta içi akşam oyunları 21:00 sonrası kısıtla",
+        "applies": lambda risk, profile: "oyuncu" in profile.lower(),
+    },
+    {
+        "id": "sleep_mode",
+        "label": "Gece kullanımını 1 saat erkene kapat",
+        "applies": lambda risk, profile: "gece" in profile.lower(),
+    },
+    {
+        "id": "social_cut_15",
+        "label": "Sosyal medya süresini %15 düşür",
+        "applies": lambda risk, profile: "sosyal" in profile.lower() or risk.lower() == "yüksek",
+    },
+]
 
 router = APIRouter()
 
@@ -46,11 +72,14 @@ def _build_policy_response(user_id: UUID, db: Session) -> PolicyResponse:
                 end=settings.nightly_end.strftime("%H:%M")
             )
 
+    weekend_extra = settings.weekend_relax_pct if settings else 0
+
     return PolicyResponse(
         user_id=user_id,
         daily_limit_minutes=final_limit, 
         blocked_apps=blocked_list,
-        bedtime=final_bedtime           
+        bedtime=final_bedtime,
+        weekend_extra_minutes=weekend_extra or 0,
     )
 
 # --- ENDPOINTLER ---
@@ -59,6 +88,61 @@ def _build_policy_response(user_id: UUID, db: Session) -> PolicyResponse:
 def get_current_policy(user_id: UUID, db: Session = Depends(get_db)):
     """Mevcut kuralları getir (Telefona inen veri)"""
     return _build_policy_response(user_id, db)
+
+
+@router.post("/auto-apply", response_model=AutoPolicyResponse)
+def auto_apply_policy(user_id: UUID, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    result = apply_auto_policy(db, str(user_id), user.birth_date)
+    return AutoPolicyResponse(
+        user_id=user_id,
+        window_days=result.window_days,
+        stage1_daily_limit=result.stage1_daily_limit,
+        stage2_daily_limit=result.stage2_daily_limit,
+        weekend_relax_pct=result.weekend_relax_pct,
+        app_limits=result.app_limits,
+        bedtime_start=result.bedtime_start,
+        bedtime_end=result.bedtime_end,
+        fallback_used=result.fallback_used,
+        message=result.message,
+    )
+
+
+@router.get("/auto-preview", response_model=AutoPolicyResponse)
+def auto_preview_policy(user_id: UUID, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    result = preview_auto_policy(db, str(user_id), user.birth_date)
+    return AutoPolicyResponse(
+        user_id=user_id,
+        window_days=result.window_days,
+        stage1_daily_limit=result.stage1_daily_limit,
+        stage2_daily_limit=result.stage2_daily_limit,
+        weekend_relax_pct=result.weekend_relax_pct,
+        app_limits=result.app_limits,
+        bedtime_start=result.bedtime_start,
+        bedtime_end=result.bedtime_end,
+        fallback_used=result.fallback_used,
+        message=result.message,
+    )
+
+
+@router.get("/recommendations")
+def get_policy_recommendations(risk_level: str, profile: str):
+    """
+    AI çıktılarına göre ebeveyne gösterilecek öneri listesi (uygulama yok).
+    """
+    risk_level = (risk_level or "").lower()
+    profile = (profile or "").lower()
+    recs = [r["label"] for r in RECOMMENDATIONS if r["applies"](risk_level, profile)]
+    if not recs:
+        recs = ["Mevcut ayarları sürdür, düzenli takibe devam et."]
+    return {"suggestions": recs}
 
 @router.put("/settings", response_model=PolicyResponse)
 def update_settings(

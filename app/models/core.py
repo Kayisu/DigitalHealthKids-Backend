@@ -15,7 +15,8 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     full_name = Column(Text)
     email = Column(Text, unique=True)
-    birth_year = Column(Integer) # <-- AI için yaş verisi
+    password_hash = Column(Text)
+    birth_date = Column(Date)  # Gün/ay/yıl formatlı doğum tarihi
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Device(Base):

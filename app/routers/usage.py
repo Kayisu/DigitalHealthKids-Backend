@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks 
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
-from app.db import get_db
+from app.db import get_db, SessionLocal
 from app.models.core import DailyUsageLog, AppSession, User, UserSettings
 from app.schemas.usage import (
     UsageReportRequest,
@@ -17,6 +17,7 @@ from app.schemas.usage import (
 )
 from app.services.analytics import calculate_daily_features 
 from app.services.categorizer import get_or_create_app_entry
+from app.services.category_constants import display_label_for, DEFAULT_CATEGORY_KEY
 from app.models.core import AppCatalog, AppCategory 
 import time as perf_time
 
@@ -24,6 +25,14 @@ router = APIRouter()
 
 # Türkiye için UTC+3 saat dilimini tanımla
 TR_TZ = timezone(timedelta(hours=3))
+def _calculate_features_background(user_id: UUID, target_date: date):
+    """Run feature calculation with a fresh DB session to avoid closed session errors."""
+    db = SessionLocal()
+    try:
+        calculate_daily_features(user_id, target_date, db)
+    finally:
+        db.close()
+
 
 
 def _interval_overlap_minutes(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> float:
@@ -203,9 +212,9 @@ def report_usage(
         print(f"DATABASE COMMIT ERROR: {e}") 
         raise HTTPException(status_code=500, detail=f"Database commit failed: {e}")
     
-    # Arka plan görevleri
+    # Arka plan görevleri (taze session ile çalıştır)
     for d in dates_in_payload:
-        background_tasks.add_task(calculate_daily_features, user_id, d, db)
+        background_tasks.add_task(_calculate_features_background, user_id, d)
     print("USAGE REPORT step=scheduled_background")
 
     return UsageReportResponse(status="ok", inserted=len(payload.events))
@@ -272,19 +281,37 @@ def get_app_detail(
         )
 
     # App adı: katalogdan ya da session payload'dan
-    app_name = None
     catalog = db.query(AppCatalog).filter(AppCatalog.package_name == package_name).first()
+
+    # Uygulama adı: katalog öncelikli, yoksa günlük log'a bak, son çare session payload
+    app_name = None
     if catalog:
         app_name = catalog.app_name
-    elif sessions:
+    if not app_name:
+        daily_log = (
+            db.query(DailyUsageLog)
+            .filter(DailyUsageLog.user_id == user_id)
+            .filter(DailyUsageLog.package_name == package_name)
+            .filter(DailyUsageLog.usage_date == target_date)
+            .order_by(DailyUsageLog.updated_at.desc())
+            .first()
+        )
+        if daily_log and daily_log.app_name:
+            app_name = daily_log.app_name
+    if not app_name and sessions:
         app_name = getattr(sessions[0], "app_name", None)
-        
+
+    # Kategori: ilişki varsa direkt, yoksa ID'den çek; katalog yoksa günlük log kategorisini kullanma
     category_name = None
     if catalog and catalog.category:
-         category_name = catalog.category.display_name
+        category_name = catalog.category.display_name
     elif catalog and catalog.category_id:
-         # İlişki yüklenmemişse ID'den bulma (Gerekirse)
-         pass
+        cat = db.query(AppCategory).filter(AppCategory.id == catalog.category_id).first()
+        if cat:
+            category_name = cat.display_name
+
+    if not category_name:
+        category_name = display_label_for(DEFAULT_CATEGORY_KEY)
 
     return AppDetailResponse(
         date=target_date.isoformat(),
@@ -316,7 +343,7 @@ def get_dashboard(user_id: UUID, db: Session = Depends(get_db)):
         .join(AppCategory, AppCatalog.category_id == AppCategory.id)
         .all()
     )
-    # Sözlük yap: { "com.instagram": "Sosyal Medya", ... }
+    # Sözlük yap: { "com.instagram": "Sosyal", ... }
     category_map = {row.package_name: row.display_name for row in catalog_query}
 
     logs = (
@@ -340,8 +367,8 @@ def get_dashboard(user_id: UUID, db: Session = Depends(get_db)):
             
             existing_app = next((x for x in daily_map[d]['apps'] if x.package_name == row.package_name), None)
             
-            # Kategoriyi haritadan bul, yoksa 'Diğer' de.
-            cat_name = category_map.get(row.package_name, "Diğer")
+            # Kategoriyi haritadan bul, yoksa varsayılan kategori (Araçlar) de.
+            cat_name = category_map.get(row.package_name, display_label_for(DEFAULT_CATEGORY_KEY))
 
             if existing_app:
                 existing_app.minutes += minutes

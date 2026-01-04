@@ -13,7 +13,7 @@ CREATE TABLE users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     full_name TEXT,
-    birth_year INT,                 -- AI yaş analizi için buraya taşıdık
+    birth_date DATE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -195,6 +195,7 @@ CREATE TABLE policy_rule (
     target_package TEXT,
     action VARCHAR,                 -- 'limit', 'block', 'warn'
     param_int INT,
+    dow_mask SMALLINT DEFAULT 127,
     allow_mask INT,
     local_start TIME,
     local_end TIME,

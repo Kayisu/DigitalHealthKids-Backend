@@ -17,6 +17,7 @@ class PolicyRule(Base):
     target_package = Column(Text)
     action = Column(String)  # "block", "limit"
     param_int = Column(Integer)
+    dow_mask = Column(Integer, default=127)  # bitmask for weekdays
     local_start = Column(Time)
     local_end = Column(Time)
     active = Column(Boolean, default=True)

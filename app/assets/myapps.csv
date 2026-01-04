@@ -1,0 +1,150 @@
+package_name,app_name,category,rating,installs,free
+ai.x.grok,Grok,artificial_intelligence,4.2,50000000,True
+com.abtnprojects.ambatana,letgo,shopping,2.8,100000000,True
+com.aefyr.sai,SAI (Simple ADB Installer),tools,4.4,1000000,True
+com.airconsole.controller,AirConsole,games,4.1,10000000,True
+com.amazon.avod.thirdpartyclient,Prime Video,video,3.8,500000000,False
+com.amazon.mShop.android.shopping,Amazon Shopping,shopping,4.5,1000000000,True
+com.anthropic.claude,Claude,artificial_intelligence,4.4,5000000,True
+com.apkmirror.helper.prod,APKMirror Installer (beta),tools,4.3,1000000,True
+com.asis.estramulasim,EsTram Mobil,travel_&_transportation,2.1,100000,True
+com.ataexpress.tiklagelsin,Tıkla Gelsin,food_&_drink,4.0,5000000,True
+com.azure.authenticator,Authenticator,tools,4.7,10000000,True
+com.bandlab.bandlab,BandLab,music,4.5,10000000,True
+com.belbim.istanbulkart,İstanbulkart,travel_&_transportation,3.3,1000000,True
+com.blizzard.messenger,Battle.net,social,4.3,1000000,True
+com.canva.editor,Canva,design,4.7,100000000,True
+com.android.chrome,Google Chrome,tools,4.1,5000000000,True
+com.chess,Satranç,games,4.6,100000000,True
+com.cloudflare.onedotonedotonedotone,1.1.1.1,tools,4.2,100000000,True
+com.coinbase.android,Coinbase,finance,4.0,50000000,True
+com.colonist.colonist,Colonist,games,4.3,1000000,True
+com.cpuid.cpu_z,CPU-Z,tools,4.5,50000000,True
+com.devolver.reigns,Reigns,games,4.7,1000000,False
+com.devsense.symbolab,Symbolab,education,4.4,10000000,True
+com.discord,Discord,social,4.5,500000000,True
+com.ekent.ankarakart,AnkaraKart,travel_&_transportation,3.5,1000000,True
+com.ekent.nevkart.akillikent,NevKart,travel_&_transportation,3.4,100000,True
+com.epicgames.portal,Epic Games,games,3.8,50000000,True
+com.evilduck.musiciankit,Perfect Ear,video,4.6,5000000,True
+com.example.akilliofis,Akıllı Ofis: Konfor ve Yaşam,health_&_fitness,3.8,10000,True
+com.example.digitalhealthkids,DigitalHealthKids,health_&_fitness,4.0,10000,True
+com.example.flutter_play,Notely,productivity,4.5,100000,True
+com.flo.ayakkabi,FLO,shopping,4.6,5000000,True
+com.fugo.wow,WoW (Words of Wonders),games,4.7,100000000,True
+com.getir,getir,food_&_drink,4.6,10000000,True
+com.github.android,GitHub,productivity,4.6,10000000,True
+com.google.android.accessibility.soundamplifier,Ses Yükseltici,tools,4.1,100000000,True
+com.google.android.apps.bard,Gemini,artificial_intelligence,4.3,100000000,True
+com.google.android.apps.docs,Drive,productivity,4.3,5000000000,True
+com.google.android.apps.docs.editors.docs,Dokümanlar,productivity,4.3,1000000000,True
+com.google.android.apps.docs.editors.sheets,E-Tablolar,productivity,4.2,1000000000,True
+com.google.android.apps.labs.language.tailwind,NotebookLM,productivity,4.2,1000000,True
+com.google.android.apps.paidtasks,Google Ödüllü Anketler,tools,4.6,50000000,True
+com.google.android.apps.translate,Çeviri,tools,4.5,1000000000,True
+com.google.android.apps.youtube.music,YouTube Music,music,4.2,1000000000,True
+com.google.android.play.games,Google Play Games,games,4.3,1000000000,True
+com.google.ar.lens,Lens,tools,4.5,1000000000,True
+com.google.chromeremotedesktop,Uzaktan Masaüstü,productivity,4.4,10000000,True
+com.google.earth,Earth,travel_&_transportation,4.5,100000000,True
+com.inomera.sm,Migros,shopping,4.3,10000000,True
+com.instagram.android,Instagram,social,4.0,1000000000,True
+com.intsig.camscanner,CamScanner,productivity,4.7,100000000,True
+com.jrustonapps.mymoonphase,My Moon Phase,hobby_entertainment,4.8,10000000,True
+com.kahvedunyasi.app,Kahve Dünyası,food_&_drink,4.5,1000000,True
+com.keenetic.kn,Keenetic,tools,4.7,1000000,True
+com.kiloo.subwaysurf,Subway Surf,games,4.6,1000000000,True
+com.KlikKlak.RealWhistleSounds,WhistleSOS,tools,4.3,1000000,True
+com.kofteciyusuf.siparisapp,Köfteci Yusuf,food_&_drink,4.6,1000000,True
+com.lcwaikiki.android,LCW,shopping,4.6,10000000,True
+com.linkedin.android,LinkedIn,social,4.2,1000000000,True
+com.lmr.lfm,MYT Müzik,tools,4.2,50000000,True
+com.maksigym.maksisoft.maksisoftmobile,Maksi Mobil,health_&_fitness,4.2,100000,True
+com.marsvard.stickermakerforwhatsapp,Sticker Maker,tools,4.5,100000000,True
+com.martitech.marti,Martı,travel_&_transportation,4.1,5000000,True
+com.mcdonalds.mobileapp,McDonald's,food_&_drink,4.6,100000000,True
+com.mgoogle.android.gms,Vanced microG,tools,4.3,10000000,True
+com.mi.android.globalFileexplorer,Dosya Yöneticisi,tools,4.4,500000000,True
+com.microblink.photomath,Photomath,education,4.7,100000000,True
+com.microsoft.copilot,Copilot,artificial_intelligence,4.5,50000000,True
+com.microsoft.math,Math,education,4.5,10000000,True
+com.microsoft.microsoftsolitairecollection,Solitaire,games,4.6,100000000,True
+com.microsoft.office.officehubrow,M365 Copilot,artificial_intelligence,4.2,10000000,True
+com.microsoft.office.outlook,Outlook,productivity,4.6,500000000,True
+com.microsoft.office.powerpoint,PowerPoint,productivity,4.4,1000000000,True
+com.microsoft.office.word,Word,productivity,4.5,1000000000,True
+com.microsoft.rdc.androidx,Windows App,productivity,4.3,50000000,True
+com.microsoft.xboxone.smartglass,Xbox,social,4.3,100000000,True
+com.mobillium.papara,Papara,finance,4.6,10000000,True
+com.mobilsozluk,Türkçe Sözlük,tools,4.6,1000000,True
+com.mobisoft.boyner,Boyner,shopping,4.5,1000000,True
+com.musescore.playerlite,MuseScore,video,4.6,50000000,True
+com.muzekart.app,MüzeKart,travel_&_transportation,4.7,1000000,True
+com.netflix.mediaclient,Netflix,video,4.5,1000000000,True
+com.netflix.NGP.SpongeBobKrustyCookOff,SpongeBob: Get Cooking,games,4.4,10000000,True
+com.Neurononfire.SupremeDuelist,Supreme Duelist Stickman,games,4.5,100000000,True
+com.nexstreaming.app.kinemasterfree,KineMaster,video,4.1,100000000,True
+com.nextcx.nays,Nays,finance,4.0,1000000,True
+com.obilet.androidside,obilet,travel_&_transportation,4.7,10000000,True
+com.oceanwing.soundcore,soundcore,tools,4.5,5000000,True
+com.openai.chatgpt,ChatGPT,artificial_intelligence,4.5,100000000,True
+com.opera.browser,Opera,social,4.4,100000000,True
+com.oplus.melody,Kablosuz Kulaklık,tools,4.4,10000000,True
+com.ovelin.guitartuna,GuitarTuna,video,4.7,100000000,True
+com.overlook.android.fing,Fing,tools,4.4,10000000,True
+com.pinterest,Pinterest,social,4.6,1000000000,True
+com.playstack.balatro.android,Balatro,games,4.8,1000000,False
+com.pozitron.pegasus,Pegasus,travel_&_transportation,4.6,5000000,True
+com.quickturtle.EmployeeSurvival_en,Kovulma!,games,4.5,10000000,True
+com.rarlab.rar,RAR,tools,4.5,100000000,True
+com.realvnc.viewer.android,RVNC Viewer,tools,4.5,1000000,True
+com.rearrangedpixel.rearrangedpixeldungon,Rearranged Pixel Dungeon,games,4.6,1000000,True
+com.reddit.frontpage,Reddit,social,4.2,100000000,True
+com.redphx.betterxc,Better xCloud,tools,4.3,500000,True
+com.robtopx.geometryjump,Geometry Dash,games,4.7,5000000,False
+com.sahibinden,sahibinden,shopping,4.6,10000000,True
+com.shatteredpixel.shatteredpixeldungeon,Shattered Pixel Dungeon,games,4.7,5000000,True
+com.shazam.android,Shazam,tools,4.7,500000000,True
+com.snapchat.android,Snapchat,social,4.1,1000000000,True
+com.sofarsogood.incredibox,Incredibox,video,4.7,10000000,False
+com.solidict.gnc2,GNÇ,social,4.2,5000000,True
+com.splendapps.decibel,Ses ölçer,tools,4.3,10000000,True
+com.spotify.music,Spotify,music,4.4,1000000000,True
+com.starbucks.tr,Starbucks,food_&_drink,4.6,50000000,True
+com.steelseries.arctiscompanion,SteelSeries Arctis Companion,tools,4.0,1000000,True
+com.supercell.brawlstars,Brawl Stars,games,4.2,500000000,True
+com.supercell.clashofclans,Clash of Clans,games,4.6,500000000,True
+com.t11.skyview,SkyView,hobby_entertainment,4.6,10000000,False
+com.tailscale.ipn,Tailscale,tools,4.5,1000000,True
+com.tmobtech.halkbank,Halkbank,finance,4.1,10000000,True
+com.trendyol.go,Trendyol Go,shopping,4.3,5000000,True
+com.truedevelopersstudio.automatictap.autoclicker,Auto Clicker,tools,4.4,10000000,True
+com.ttech.android.onlineislem,Turkcell,social,4.0,50000000,True
+com.turkuvaz.a2bis,Paybis,finance,4.2,1000000,True
+com.twitter.android,X,social,3.8,1000000000,True
+com.valvesoftware.android.steam.community,Steam,social,4.4,50000000,True
+com.verisun.kayseri,Kayseri Ulaşım,travel_&_transportation,3.2,100000,True
+com.vzcreations.lightignite,Light Ignite,tools,4.5,1000000,True
+com.whatsapp,WhatsApp,social,4.0,5000000000,True
+com.zacharee1.systemuituner,SystemUI Tuner,tools,3.8,1000000,True
+com.ziraat.ziraatmobil,Ziraat Mobil,finance,4.6,10000000,True
+dev.netlob.spotistats,stats.fm,tools,4.7,1000000,True
+jp.pokemon.pokemontcgp,Pokémon Trading Card Game Pocket,games,4.6,5000000,True
+krypton.tbsafetychecker,TB Checker,tools,4.0,1000000,True
+md.obsidian,Obsidian,productivity,4.8,5000000,True
+me.mycake,Cake,social,4.6,10000000,True
+moe.shizuku.privileged.api,Shizuku,tools,4.7,1000000,True
+net.erkin.halkbank_kampuste,Halkbank Kampüste,finance,4.1,500000,True
+org.geogebra.android.calculator.suite,GeoGebra,education,4.5,50000000,True
+org.lsposed.lspatch,LSPatch,tools,4.3,500000,True
+org.telegram.messenger,Telegram,social,4.4,1000000000,True
+org.zwanoo.android.speedtest,Speedtest,tools,4.3,100000000,True
+photoeditor.photoretouch.removeobjects.retouch,AI Retouch - Nesneleri Kaldır,tools,4.6,10000000,True
+ps.reso.instaeclipse,InstaEclipse,design,4.3,500000,True
+skynet.cputhrottlingtest,CPU Throttling Test,tools,4.5,1000000,True
+tr.com.dominos,Domino's,food_&_drink,4.4,50000000,True
+tr.com.instreet,IN STREET,shopping,4.5,1000000,True
+tr.gov.icisleri.afad,Afet Acil Arama,tools,4.5,1000000,True
+tr.gov.turkiye.edevlet.kapisi,e-Devlet,tools,4.7,50000000,True
+water.eject.speaker.cleaner,Temiz dalga,tools,4.4,10000000,True
+xdsopl.robot36,Robot36,tools,4.4,1000000,True
